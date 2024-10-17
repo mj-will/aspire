@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools-scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bayesian-poppy"
+authors = [
+    {name = "Michael J. Williams", email = "michaeljw1@googlemail.com"},
+]
+description = "Bayesian Posterior Post-processing in Python"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "matplotlib",
+    "numpy",
+]
+
+dynamic = ["version"]
+
+[project.optional-dependencies]
+jax = [
+    "jax",
+    "jaxlib",
+    "flowjax"
+]
+torch = [
+    "torch",
+]
+test = [
+    "pytest",
+]
+
+[tool.setuptools_scm]
+
+[tool.ruff]
+line-length = 79
+indent-width = 4
+target-version = "py39"
+
+[tool.ruff.lint]
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+extend-select = ["I"]
