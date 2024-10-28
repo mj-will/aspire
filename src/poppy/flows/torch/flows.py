@@ -1,44 +1,26 @@
 import torch
 import tqdm
 import zuko
+import random
 
 from ..base import Flow
 
 
 class BaseTorchFlow(Flow):
-    def __init__(self, dims: int, seed: int = 1234, device: str = "cpu"):
-        super().__init__(dims)
+    def __init__(self, dims: int, seed: int = 1234, device: str = "cpu", data_transform=None):
+        super().__init__(dims, data_transform=data_transform)
         torch.manual_seed(seed)
         self.device = torch.device(device)
         self.loc = None
         self.scale = None
 
     def fit(self, x):
-        self.fit_rescaling(x)
-
-    def fit_rescaling(self, x: torch.Tensor) -> None:
-        self.loc = torch.mean(x, axis=0)
-        self.scale = torch.std(x, axis=0)
-        self.log_abs_det_jacobian = torch.sum(torch.log(self.scale))
-
-    def rescale(self, x):
-        return (
-            x - self.loc
-        ) / self.scale, self.log_abs_det_jacobian * torch.ones(
-            x.shape[0], device=x.device
-        )
-
-    def inverse_rescale(self, x_prime):
-        return (
-            x_prime * self.scale + self.loc,
-            -self.log_abs_det_jacobian
-            * torch.ones(x_prime.shape[0], device=x_prime.device),
-        )
+        raise NotImplementedError()
 
 
 class ZukoFlow(BaseTorchFlow):
-    def __init__(self, dims, seed=1234, device: str = "cpu", **kwargs):
-        super().__init__(dims, seed, device)
+    def __init__(self, dims, data_transform=None, seed=1234, device: str = "cpu", **kwargs):
+        super().__init__(dims, data_transform=data_transform, seed=seed, device=device)
         self._flow = zuko.flows.MAF(self.dims, 0, **kwargs)
         self._flow.compile()
 
@@ -52,12 +34,14 @@ class ZukoFlow(BaseTorchFlow):
         lr: float = 1e-3,
         batch_size: int = 500,
         validation_fraction: float = 0.2,
+        lr_annealing: bool = False,
     ):
         from ...history import History
 
-        super().fit(x)
+        x_prime = self.fit_data_transform(torch.clone(x))
+        indices = torch.randperm(x_prime.shape[0])
+        x_prime = x_prime[indices, ...]
 
-        x_prime, _ = self.rescale(x)
         n = x_prime.shape[0]
         x_train_numpy = x_prime[: -int(validation_fraction * n)]
         x_val_numpy = x_prime[-int(validation_fraction * n) :]
@@ -78,6 +62,8 @@ class ZukoFlow(BaseTorchFlow):
 
         # Train to maximize the log-likelihood
         optimizer = torch.optim.Adam(self._flow.parameters(), lr=lr)
+        if lr_annealing:
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
         history = History()
 
         for _ in tqdm.tqdm(range(n_epochs)):
@@ -90,7 +76,8 @@ class ZukoFlow(BaseTorchFlow):
                 # torch.nn.utils.clip_grad_norm_(flow.parameters(), 2.0)
                 optimizer.step()
                 loss_epoch += loss.item()
-            # scheduler.step()
+            if lr_annealing:
+                scheduler.step()
             history.training_loss.append(loss_epoch / len(dataset))
             self._flow.eval()
             val_loss = 0.0
@@ -104,7 +91,7 @@ class ZukoFlow(BaseTorchFlow):
         with torch.no_grad():
             x_prime, log_prob = self._flow().rsample_and_log_prob((n_samples,))
         x, log_abs_det_jacobian = self.inverse_rescale(x_prime)
-        return x, log_prob + log_abs_det_jacobian
+        return x, log_prob - log_abs_det_jacobian
 
     def log_prob(self, x):
         x_prime, log_abs_det_jacobian = self.rescale(x)
@@ -113,9 +100,9 @@ class ZukoFlow(BaseTorchFlow):
 
 class ZukoFlowMatching(ZukoFlow):
     def __init__(
-        self, dims, seed=1234, device="cpu", eta: float = 1e-3, **kwargs
+        self, dims, data_transform=None, seed=1234, device="cpu", eta: float = 1e-3, **kwargs
     ):
-        super().__init__(dims, seed, device)
+        super().__init__(dims, seed=seed, device=device, data_transform=data_transform)
         self.eta = eta
         kwargs.setdefault("hidden_features", 4 * [100])
         self._flow = zuko.flows.CNF(self.dims, 0, **kwargs)

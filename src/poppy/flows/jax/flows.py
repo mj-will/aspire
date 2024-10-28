@@ -22,7 +22,7 @@ class FlowJax(Flow):
     def fit(self, x):
         from ...history import History
 
-        self.fit_rescaling(x)
+        self.fit_initial_transforms(x)
         x_prime, _ = self.rescale(x)
         self.key, subkey = jrandom.split(self.key)
         self._flow, losses = fit_to_data(subkey, self._flow, x_prime)
@@ -38,7 +38,7 @@ class FlowJax(Flow):
         x, log_abs_det_jacobian = self.inverse_rescale(x_prime)
         return x, log_prob + log_abs_det_jacobian
 
-    def fit_rescaling(self, x: jnp.ndarray) -> None:
+    def fit_initial_transforms(self, x: jnp.ndarray) -> None:
         self.loc = jnp.mean(x, axis=0)
         self.scale = jnp.std(x, axis=0)
         self.log_abs_det_jacobian = jnp.sum(jnp.log(self.scale))
