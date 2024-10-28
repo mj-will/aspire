@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass, field
 
 
@@ -87,3 +88,24 @@ class BaseSamples:
             raise ValueError(
                 f"Unknown backend {backend}. Known backends are numpy, jax, and torch."
             )
+
+    def plot_corner(self, include_weights: bool = True, **kwargs):
+        kwargs = copy.deepcopy(kwargs)
+        import corner
+        samples = self.to_numpy()
+
+        if include_weights and samples.weights is not None:
+            kwargs["weights"] = samples.scaled_weights
+        kwargs.setdefault("labels", samples.parameters)
+        fig = corner.corner(samples.x, **kwargs)
+        return fig
+
+    def __str__(self):
+        return (
+            f"No. samples: {len(self.x)}\n"
+            f"No. parameters: {len(self.parameters)}\n"
+            f"Log evidence: {self.log_evidence:.2f} +/- {self.log_evidence_error:.2f}\n"
+            f"Effective sample size: {self.effective_sample_size:.1f}\n"
+            f"Efficiency: {self.efficiency:.2f}\n"
+            f"Effective no. of samples: {self.effective_number:.2f}"
+        )
