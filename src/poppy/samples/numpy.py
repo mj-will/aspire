@@ -31,19 +31,21 @@ class NumpySamples(BaseSamples):
             np.sum((self.weights - self.evidence) ** 2) / (n * (n - 1))
         )
         self.log_evidence_error = abs(self.evidence_error / self.evidence)
+        log_w = self.log_w - np.nanmax(self.log_w)
         self.effective_sample_size = np.exp(
-            logsumexp(self.log_w) * 2 - logsumexp(self.log_w * 2)
+            logsumexp(log_w) * 2 - logsumexp(log_w * 2)
         )
+        self.effective_number = np.exp(logsumexp(log_w))
 
     @property
     def scaled_weights(self):
-        return np.exp(self.log_w - self.log_w.max())
+        return np.exp(self.log_w - np.nanmax(self.log_w))
 
     def rejection_sample(self, rng=None):
         if rng is None:
             rng = np.random.default_rng()
         log_u = np.log(rng.uniform(size=len(self.x)))
-        log_w = self.log_w - self.log_w.max()
+        log_w = self.log_w - np.nanmax(self.log_w)
         accept = log_w > log_u
         return self.__class__(
             x=self.x[accept],
@@ -59,6 +61,7 @@ class NumpySamples(BaseSamples):
 
         return JaxSamples(
             x=numpy_to_jax(self.x),
+            parameters=self.parameters,
             log_likelihood=numpy_to_jax(self.log_likelihood),
             log_prior=numpy_to_jax(self.log_prior),
             log_q=numpy_to_jax(self.log_q),
@@ -69,15 +72,16 @@ class NumpySamples(BaseSamples):
 
         return TorchSamples(
             x=numpy_to_torch(self.x),
+            parameters=self.parameters,
             log_likelihood=numpy_to_torch(self.log_likelihood),
             log_prior=numpy_to_torch(self.log_prior),
             log_q=numpy_to_torch(self.log_q),
         )
 
 
-def torch_to_numpy(value, /):
+def torch_to_numpy(value, /, device=None, dtype=None):
     return value.detach().numpy() if value is not None else None
 
 
-def jax_to_numpy(value, /):
-    return np.array(value) if value is not None else None
+def jax_to_numpy(value, /, device=None, dtype=None):
+    return np.array(value, dtype=None) if value is not None else None

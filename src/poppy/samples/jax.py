@@ -65,15 +65,16 @@ class JaxSamples(BaseSamples):
 
         return NumpySamples(
             jax_to_numpy(self.x),
+            parameters=self.parameters,
             log_likelihood=jax_to_numpy(self.log_likelihood),
             log_prior=jax_to_numpy(self.log_prior),
             log_q=jax_to_numpy(self.log_q),
         )
 
 
-def numpy_to_jax(value, /):
-    return jnp.array(value) if value is not None else None
+def numpy_to_jax(value, /, device=None, dtype=None):
+    return jnp.array(value, dtype=dtype) if value is not None else None
 
 
-def torch_to_jax(value, /):
-    return jnp.array(value.detach().numpy()) if value is not None else None
+def torch_to_jax(value, /, device=None, dtype=None):
+    return jnp.array(value.detach().numpy(), dtype=dtype) if value is not None else None

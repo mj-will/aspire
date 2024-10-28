@@ -44,6 +44,7 @@ class TorchSamples(BaseSamples):
 
         return NumpySamples(
             torch_to_numpy(self.x),
+            parameters=self.parameters,
             log_likelihood=torch_to_numpy(self.log_likelihood),
             log_prior=torch_to_numpy(self.log_prior),
             log_q=torch_to_numpy(self.log_q),
@@ -57,23 +58,28 @@ class TorchSamples(BaseSamples):
 
         return JaxSamples(
             x=torch_to_jax(self.x),
+            parameters=self.parameters,
             log_likelihood=torch_to_jax(self.log_likelihood),
             log_prior=torch_to_jax(self.log_prior),
             log_q=torch_to_jax(self.log_q),
         )
 
 
-def numpy_to_torch(value, /):
+def numpy_to_torch(value, /, device=None, dtype=None):
+    if dtype is None:
+        dtype = torch.get_default_dtype()
     return (
-        torch.tensor(value, dtype=torch.get_default_dtype())
+        torch.tensor(value, dtype=dtype, device=device)
         if value is not None
         else None
     )
 
 
-def jax_to_torch(value, /):
+def jax_to_torch(value, /, device=None):
+    if dtype is None:
+        dtype = torch.get_default_dtype()
     return (
-        torch.tensor(value, dtype=torch.get_default_dtype())
+        torch.tensor(value, dtype=dtype, device=device)
         if value is not None
         else None
     )
