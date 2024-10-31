@@ -79,8 +79,10 @@ class Poppy:
 
         if evaluate:
             if log_prior is None:
+                logger.info("Evaluating log prior")
                 samples.log_prior = self.log_prior(samples)
             if log_likelihood is None:
+                logger.info("Evaluating log likelihood")
                 samples.log_likelihood = self.log_likelihood(samples)
             samples.compute_weights()
         return samples
