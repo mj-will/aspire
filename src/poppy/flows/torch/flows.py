@@ -19,9 +19,18 @@ class BaseTorchFlow(Flow):
 
 
 class ZukoFlow(BaseTorchFlow):
-    def __init__(self, dims, data_transform=None, seed=1234, device: str = "cpu", **kwargs):
+    def __init__(
+        self,
+        dims,
+        flow_class: str = "MAF",
+        data_transform=None,
+        seed=1234,
+        device: str = "cpu",
+        **kwargs
+    ):
         super().__init__(dims, data_transform=data_transform, seed=seed, device=device)
-        self._flow = zuko.flows.MAF(self.dims, 0, **kwargs)
+        FlowClass = getattr(zuko.flows, flow_class)
+        self._flow = FlowClass(self.dims, 0, **kwargs)
         self._flow.compile()
 
     def loss_fn(self, x):
@@ -43,12 +52,17 @@ class ZukoFlow(BaseTorchFlow):
         x_prime = x_prime[indices, ...]
 
         n = x_prime.shape[0]
-        x_train_numpy = x_prime[: -int(validation_fraction * n)]
-        x_val_numpy = x_prime[-int(validation_fraction * n) :]
-
-        x_train = torch.FloatTensor(x_train_numpy)
-        x_val = torch.FloatTensor(x_val_numpy)
-
+        x_train = torch.as_tensor(
+            x_prime[: -int(validation_fraction * n)],
+            dtype=torch.get_default_dtype(),
+            device=self.device,
+        )
+        x_val = torch.as_tensor(
+            x_prime[-int(validation_fraction * n) :],
+            dtype=torch.get_default_dtype(),
+            device=self.device,
+        )
+        
         dataset = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(x_train),
             shuffle=True,
@@ -82,7 +96,7 @@ class ZukoFlow(BaseTorchFlow):
             self._flow.eval()
             val_loss = 0.0
             for (x_batch,) in val_dataset:
-                with torch.inference_mode():
+                with torch.no_grad():
                     val_loss += self.loss_fn(x_batch).item()
             history.validation_loss.append(val_loss / len(val_dataset))
         return history
@@ -102,10 +116,11 @@ class ZukoFlowMatching(ZukoFlow):
     def __init__(
         self, dims, data_transform=None, seed=1234, device="cpu", eta: float = 1e-3, **kwargs
     ):
-        super().__init__(dims, seed=seed, device=device, data_transform=data_transform)
-        self.eta = eta
         kwargs.setdefault("hidden_features", 4 * [100])
-        self._flow = zuko.flows.CNF(self.dims, 0, **kwargs)
+        super().__init__(
+            dims, seed=seed, device=device, data_transform=data_transform, flow_class="CNF"
+        )
+        self.eta = eta
 
     def loss_fn(self, theta: torch.Tensor):
         t = torch.rand(
