@@ -101,7 +101,7 @@ class ZukoFlow(BaseTorchFlow):
             history.validation_loss.append(val_loss / len(val_dataset))
         return history
 
-    def sample(self, n_samples: int):
+    def sample_and_log_prob(self, n_samples: int):
         with torch.no_grad():
             x_prime, log_prob = self._flow().rsample_and_log_prob((n_samples,))
         x, log_abs_det_jacobian = self.inverse_rescale(x_prime)
