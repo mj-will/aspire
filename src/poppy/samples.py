@@ -28,13 +28,13 @@ class Samples:
     def __post_init__(self):
         if self.xp is None:
             self.xp = array_namespace(self.x)
-        else:
-            if self.log_likelihood is not None:
-                self.log_likelihood = self.xp.asarray(self.log_likelihood)
-            if self.log_prior is not None:
-                self.log_prior = self.xp.asarray(self.log_prior)
-            if self.log_q is not None:
-                self.log_q = self.xp.asarray(self.log_q)
+        self.x = self.xp.asarray(self.x)
+        if self.log_likelihood is not None:
+            self.log_likelihood = self.xp.asarray(self.log_likelihood)
+        if self.log_prior is not None:
+            self.log_prior = self.xp.asarray(self.log_prior)
+        if self.log_q is not None:
+            self.log_q = self.xp.asarray(self.log_q)
 
         if self.parameters is None:
             self.parameters = [f"x_{i}" for i in range(len(self.x[0]))]
