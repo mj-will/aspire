@@ -1,4 +1,5 @@
 import logging
+import multiprocessing as mp
 from typing import Callable
 
 from .flows import get_flow_wrapper
@@ -110,6 +111,7 @@ class Poppy:
     def fit(self, samples: Samples, **kwargs) -> dict:
         if self.xp is None:
             self.xp = samples.xp
+        print(self.xp)
 
         if self.flow is None:
             self.init_flow()
@@ -123,3 +125,17 @@ class Poppy:
         logger.info("Sample summary:")
         logger.info(samples)
         return samples
+
+    def enable_pool(self, pool: mp.Pool):
+        """Context manager to temporarily replace the log_likelihood method
+        with a version that uses a multiprocessing pool to parallelize
+        computation.
+
+        Parameters
+        ----------
+        pool : multiprocessing.Pool
+            The pool to use for parallel computation.
+        """
+        from .utils import PoolHandler
+
+        return PoolHandler(self, pool)
