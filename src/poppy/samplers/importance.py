@@ -1,0 +1,17 @@
+
+from .base import Sampler
+from ..samples import Samples
+
+class ImportanceSampler(Sampler):
+
+    def sample(self, n_samples: int) -> Samples:
+        x, log_q = self.flow.sample_and_log_prob(n_samples)
+        samples = Samples(x, log_q=log_q, xp=self.xp, parameters=self.parameters)
+        samples.log_prior = samples.array_to_namespace(
+            self.log_prior(samples)
+        )
+        samples.log_likelihood = samples.array_to_namespace(
+            self.log_likelihood(samples)
+        )
+        samples.compute_weights()
+        return samples
