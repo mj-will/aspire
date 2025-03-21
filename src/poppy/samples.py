@@ -1,21 +1,118 @@
 import copy
 import math
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
-from array_api_compat import array_namespace
+from array_api_compat import array_namespace, is_numpy_namespace, to_device
 from array_api_compat.common._typing import Array
-from scipy.special import logsumexp
+
+from .utils import logsumexp, to_numpy
 
 
 @dataclass
-class Samples:
+class BaseSamples:
+    """Class for storing samples and corresponding weights.
+    
+    If :code:`xp` is not specified, all inputs will be converted to match
+    the array type of :code:`x`.
+    """
     x: Array
-    parameters: list[str] | None = None
     log_likelihood: Array | None = None
     log_prior: Array | None = None
     log_q: Array | None = None
+    parameters: list[str] | None = None
+    xp: Callable | None = None
+    device: Any = None
+
+    def __post_init__(self):
+        if self.xp is None:
+            self.xp = array_namespace(self.x)
+        # Numpy arrays need to be on the CPU before being converted
+        if is_numpy_namespace(self.xp):
+            self.device = "cpu"
+        self.x = self.array_to_namespace(self.x)
+        if self.device is None:
+            self.device = self.xp.device(self.x)
+        if self.log_likelihood is not None:
+            self.log_likelihood = self.array_to_namespace(self.log_likelihood)
+        if self.log_prior is not None:
+            self.log_prior = self.array_to_namespace(self.log_prior)
+        if self.log_q is not None:
+            self.log_q = self.array_to_namespace(self.log_q)
+
+        if self.parameters is None:
+            self.parameters = [f"x_{i}" for i in range(len(self.x[0]))]
+
+    def to_numpy(self):
+        return self.__class__(
+            x=to_numpy(self.x),
+            parameters=self.parameters,
+            log_likelihood=to_numpy(self.log_likelihood) if self.log_likelihood is not None else None,
+            log_prior=to_numpy(self.log_prior) if self.log_prior is not None else None,
+            log_q=to_numpy(self.log_q) if self.log_q is not None else None,
+        )
+
+    def to_namespace(self, xp):
+        return self.__class__(
+            x=xp.asarray(self.x),
+            parameters=self.parameters,
+            log_likelihood=xp.asarray(self.log_likelihood) if self.log_likelihood is not None else None,
+            log_prior=xp.asarray(self.log_prior) if self.log_prior is not None else None,
+            log_q=xp.asarray(self.log_q) if self.log_q is not None else None,
+        )
+
+    def array_to_namespace(self, x):
+        """Convert an array to the same namespace as the samples"""
+        if is_numpy_namespace(self.xp):
+            x = to_device(x, "cpu")
+        x = self.xp.asarray(x)
+        if self.device:
+            x = to_device(x, self.device)
+        return x
+
+    def to_dict(self, flat: bool = True):
+        samples = dict(zip(self.parameters, self.x.T, strict=True))
+        out = {
+            "log_likelihood": self.log_likelihood,
+            "log_prior": self.log_prior,
+            "log_q": self.log_q,
+            "log_w": self.log_w,
+        }
+        if flat:
+            out.update(samples)
+        else:
+            out["samples"] = samples
+        return out
+
+    def to_dataframe(self, flat: bool = True):
+        import pandas as pd
+
+        return pd.DataFrame(self.to_dict(flat=flat))
+
+    def plot_corner(self, **kwargs):
+        import corner
+
+        kwargs = copy.deepcopy(kwargs)
+        kwargs.setdefault("labels", self.parameters)
+        fig = corner.corner(to_numpy(self.x), **kwargs)
+        return fig
+
+    def __str__(self):
+        out = (
+            f"No. samples: {len(self.x)}\n"
+            f"No. parameters: {len(self.parameters)}\n"
+        )
+        return out
+
+
+@dataclass
+class Samples(BaseSamples):
+    """Class for storing samples and corresponding weights.
+
+    If :code:`xp` is not specified, all inputs will be converted to match
+    the array type of :code:`x`.
+    """
     log_w: Array = field(init=False)
     weights: Array = field(init=False)
     evidence: float = field(init=False)
@@ -23,21 +120,10 @@ class Samples:
     log_evidence: float = field(init=False)
     log_evidence_error: float = field(init=False)
     effective_sample_size: float = field(init=False)
-    xp: Callable | None = None
 
     def __post_init__(self):
-        if self.xp is None:
-            self.xp = array_namespace(self.x)
-        self.x = self.xp.asarray(self.x)
-        if self.log_likelihood is not None:
-            self.log_likelihood = self.xp.asarray(self.log_likelihood)
-        if self.log_prior is not None:
-            self.log_prior = self.xp.asarray(self.log_prior)
-        if self.log_q is not None:
-            self.log_q = self.xp.asarray(self.log_q)
+        super().__post_init__()
 
-        if self.parameters is None:
-            self.parameters = [f"x_{i}" for i in range(len(self.x[0]))]
         if all(
             x is not None
             for x in [self.log_likelihood, self.log_prior, self.log_q]
@@ -53,9 +139,16 @@ class Samples:
 
     @property
     def efficiency(self):
+        """Efficiency of the weighted samples.
+
+        Defined as ESS / number of samples.
+        """
+        if self.log_w is None:
+            raise RuntimeError("Samples do not contain weights!")
         return self.effective_sample_size / len(self.x)
 
     def compute_weights(self):
+        """Compute the posterior weights."""
         self.log_w = self.log_likelihood + self.log_prior - self.log_q
         self.log_evidence = self.xp.asarray(logsumexp(self.log_w)) - math.log(
             len(self.x)
@@ -73,7 +166,6 @@ class Samples:
         self.effective_sample_size = self.xp.exp(
             self.xp.asarray(logsumexp(log_w) * 2 - logsumexp(log_w * 2))
         )
-        self.effective_number = self.xp.exp(self.xp.asarray(logsumexp(log_w)))
 
     @property
     def scaled_weights(self):
@@ -82,8 +174,8 @@ class Samples:
     def rejection_sample(self, rng=None):
         if rng is None:
             rng = np.random.default_rng()
-        log_u = self.xp.asarray(np.log(rng.uniform(size=len(self.x))))
-        log_w = self.log_w - self.xp.nanmax(self.log_w)
+        log_u = self.xp.asarray(np.log(rng.uniform(size=len(self.x))), device=self.device)
+        log_w = self.log_w - self.xp.max(self.log_w)
         accept = log_w > log_u
         return self.__class__(
             x=self.x[accept],
@@ -91,21 +183,10 @@ class Samples:
             log_prior=self.log_prior[accept],
         )
 
-    def to_numpy(self):
-        return self.__class__(
-            x=np.asarray(self.x),
-            parameters=self.parameters,
-            log_likelihood=np.asarray(self.log_likelihood),
-            log_prior=np.asarray(self.log_prior),
-            log_q=np.asarray(self.log_q),
-        )
-
     def to_dict(self, flat: bool = True):
         samples = dict(zip(self.parameters, self.x.T, strict=True))
-        out = {
-            "log_likelihood": self.log_likelihood,
-            "log_prior": self.log_prior,
-            "log_q": self.log_q,
+        out = super().to_dict(flat=flat)
+        other = {
             "log_w": self.log_w,
             "weights": self.weights,
             "evidence": self.evidence,
@@ -114,41 +195,28 @@ class Samples:
             "log_evidence_error": self.log_evidence_error,
             "effective_sample_size": self.effective_sample_size,
         }
+        out.update(other)
         if flat:
             out.update(samples)
         else:
             out["samples"] = samples
         return out
 
-    def to_dataframe(self, flat: bool = True):
-        import pandas as pd
-
-        return pd.DataFrame(self.to_dict(flat=flat))
-
     def plot_corner(self, include_weights: bool = True, **kwargs):
         kwargs = copy.deepcopy(kwargs)
-        import corner
-
-        if include_weights and self.weights is not None:
-            kwargs["weights"] = np.asarray(self.scaled_weights)
-        kwargs.setdefault("labels", self.parameters)
-        fig = corner.corner(np.asarray(self.x), **kwargs)
-        return fig
+        if include_weights and self.weights is not None and "weights" not in kwargs:
+            kwargs["weights"] = to_numpy(self.scaled_weights)
+        return super().plot_corner(**kwargs)
 
     def __str__(self):
-        return (
-            f"No. samples: {len(self.x)}\n"
-            f"No. parameters: {len(self.parameters)}\n"
-            f"Log evidence: {self.log_evidence:.2f} +/- {self.log_evidence_error:.2f}\n"
-            f"Effective sample size: {self.effective_sample_size:.1f}\n"
-            f"Efficiency: {self.efficiency:.2f}\n"
-            f"Effective no. of samples: {self.effective_number:.2f}"
-        )
-
-
-def torch_to_numpy(value, /, device=None, dtype=None):
-    return value.detach().numpy() if value is not None else None
-
-
-def jax_to_numpy(value, /, device=None, dtype=None):
-    return np.array(value, dtype=None) if value is not None else None
+        out = super().__str__()
+        if self.log_evidence is not None:
+            out += (
+                f"Log evidence: {self.log_evidence:.2f} +/- {self.log_evidence_error:.2f}\n"
+            )
+        if self.log_w is not None:
+            out += (
+                f"Effective sample size: {self.effective_sample_size:.1f}\n"
+                f"Efficiency: {self.efficiency:.2f}\n"
+            )
+        return out
