@@ -4,6 +4,8 @@ import math
 
 from scipy.special import erf, erfinv
 
+from .utils import logit, sigmoid
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,8 +16,10 @@ class DataTransform:
         periodic_parameters: list[int],
         prior_bounds: list[tuple[float, float]],
         bounded_to_unbounded: bool = True,
+        bounded_transform: str = "probit",
         device=None,
         xp: None = None,
+        eps: float = 1e-6,
     ):
         if prior_bounds is None:
             logger.warning(
@@ -33,6 +37,7 @@ class DataTransform:
 
         self.xp = xp
         self.device = device
+        self.eps = eps
 
         if prior_bounds is None:
             self.prior_bounds = None
@@ -42,7 +47,7 @@ class DataTransform:
         else:
             logger.info(f"Prior bounds: {prior_bounds}")
             self.prior_bounds = {
-                k: self.xp.asarray(v) for k, v in prior_bounds.items()
+                k: self.xp.asarray(v, device=device) for k, v in prior_bounds.items()
             }
             if bounded_to_unbounded:
                 self.bounded_parameters = [
@@ -54,16 +59,20 @@ class DataTransform:
             else:
                 self.bounded_parameters = None
             lower_bounds = self.xp.asarray(
-                [self.prior_bounds[p][0] for p in parameters]
+                [self.prior_bounds[p][0] for p in parameters],
+                device=device,
             )
             upper_bounds = self.xp.asarray(
-                [self.prior_bounds[p][1] for p in parameters]
+                [self.prior_bounds[p][1] for p in parameters],
+                device=device,
             )
 
         if self.periodic_parameters:
             logger.info(f"Periodic parameters: {self.periodic_parameters}")
             self.periodic_mask = self.xp.asarray(
-                [p in self.periodic_parameters for p in parameters], dtype=bool
+                [p in self.periodic_parameters for p in parameters],
+                dtype=bool,
+                device=device,
             )
             self.periodic_transform = PeriodicTransform(
                 lower=lower_bounds[self.periodic_mask],
@@ -75,10 +84,20 @@ class DataTransform:
             self.bounded_mask = self.xp.asarray(
                 [p in self.bounded_parameters for p in parameters], dtype=bool
             )
-            self.bounded_transform = ProbitTransform(
+            if bounded_transform == "probit":
+                BoundedClass = ProbitTransform
+            elif bounded_transform == "logit":
+                BoundedClass = LogitTransform
+            else:
+                raise ValueError(
+                    f"Unknown bounded transform: {bounded_transform}"
+                )
+
+            self.bounded_transform = BoundedClass(
                 lower=lower_bounds[self.bounded_mask],
                 upper=upper_bounds[self.bounded_mask],
                 xp=self.xp,
+                eps=self.eps,
             )
         logger.info(f"Affine transform applied to: {self.parameters}")
         self.affine_transform = AffineTransform(xp=self.xp)
@@ -151,6 +170,7 @@ class PeriodicTransform(DataTransform):
         self._width = upper - lower
         self._shift = None
         self.xp = xp
+        assert False
 
     def fit(self, x):
         return self.forward(x)[0]
@@ -196,6 +216,35 @@ class ProbitTransform(DataTransform):
         x = 0.5 * (1 + erf(y / math.sqrt(2)))
         x = (self.upper - self.lower) * x + self.lower
         return x, log_abs_det_jacobian
+    
+
+class LogitTransform(DataTransform):
+
+    name: str = "logit"
+    requires_prior_bounds: bool = True
+
+    def __init__(self, lower, upper, xp, eps=1e-6):
+        self.lower = lower
+        self.upper = upper
+        self._scale_log_abs_det_jacobian = -xp.log(upper - lower).sum()
+        self.eps = eps
+        self.xp = xp
+
+    def fit(self, x):
+        return self.forward(x)[0]
+
+    def forward(self, x):
+        y = (x - self.lower) / (self.upper - self.lower)
+        y, log_abs_det_jacobian = logit(y, eps=self.eps)
+        log_abs_det_jacobian += self._scale_log_abs_det_jacobian
+        return y, log_abs_det_jacobian
+
+    def inverse(self, y):
+        x, log_abs_det_jacobian = sigmoid(y)
+        log_abs_det_jacobian -= self._scale_log_abs_det_jacobian 
+        x = (self.upper - self.lower) * x + self.lower
+        return x, log_abs_det_jacobian
+
 
 
 class AffineTransform(DataTransform):
