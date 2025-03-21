@@ -8,6 +8,9 @@ from ..base import Flow
 
 
 class BaseTorchFlow(Flow):
+
+    _flow = None
+
     def __init__(
         self,
         dims: int,
@@ -15,11 +18,24 @@ class BaseTorchFlow(Flow):
         device: str = "cpu",
         data_transform=None,
     ):
-        super().__init__(dims, data_transform=data_transform)
+        super().__init__(
+            dims,
+            device=torch.device(device or "cpu"),
+            data_transform=data_transform,
+        )
         torch.manual_seed(seed)
-        self.device = torch.device(device)
         self.loc = None
         self.scale = None
+
+    @property
+    def flow(self):
+        return self._flow
+    
+    @flow.setter
+    def flow(self, flow):
+        self._flow = flow
+        self._flow.to(self.device)
+        self._flow.compile()
 
     def fit(self, x):
         raise NotImplementedError()
@@ -36,14 +52,16 @@ class ZukoFlow(BaseTorchFlow):
         **kwargs,
     ):
         super().__init__(
-            dims, data_transform=data_transform, seed=seed, device=device
+            dims,
+            device=device,
+            data_transform=data_transform,
+            seed=seed,
         )
         FlowClass = getattr(zuko.flows, flow_class)
-        self._flow = FlowClass(self.dims, 0, **kwargs)
-        self._flow.compile()
+        self.flow = FlowClass(self.dims, 0, **kwargs)
 
     def loss_fn(self, x):
-        return -self._flow().log_prob(x).mean()
+        return -self.flow().log_prob(x).mean()
 
     def fit(
         self,
@@ -62,6 +80,7 @@ class ZukoFlow(BaseTorchFlow):
             )
         else:
             x = torch.clone(x)
+            x = x.to(self.device)
         x_prime = self.fit_data_transform(x)
         indices = torch.randperm(x_prime.shape[0])
         x_prime = x_prime[indices, ...]
@@ -98,7 +117,7 @@ class ZukoFlow(BaseTorchFlow):
         history = History()
 
         for _ in tqdm.tqdm(range(n_epochs)):
-            self._flow.train()
+            self.flow.train()
             loss_epoch = 0.0
             for (x_batch,) in dataset:
                 loss = self.loss_fn(x_batch)
@@ -110,19 +129,25 @@ class ZukoFlow(BaseTorchFlow):
             if lr_annealing:
                 scheduler.step()
             history.training_loss.append(loss_epoch / len(dataset))
-            self._flow.eval()
+            self.flow.eval()
             val_loss = 0.0
             for (x_batch,) in val_dataset:
                 with torch.no_grad():
                     val_loss += self.loss_fn(x_batch).item()
             history.validation_loss.append(val_loss / len(val_dataset))
         return history
-
+    
     def sample_and_log_prob(self, n_samples: int, xp=torch_api):
         with torch.no_grad():
-            x_prime, log_prob = self._flow().rsample_and_log_prob((n_samples,))
+            x_prime, log_prob = self.flow().rsample_and_log_prob((n_samples,))
         x, log_abs_det_jacobian = self.inverse_rescale(x_prime)
         return xp.asarray(x), xp.asarray(log_prob - log_abs_det_jacobian)
+    
+    def sample(self, n_samples: int, xp=torch_api):
+        with torch.no_grad():
+            x_prime = self.flow().rsample((n_samples,))
+        x = self.inverse_rescale(x_prime)[0]
+        return xp.asarray(x)
 
     def log_prob(self, x, xp=torch_api):
         x = torch.tensor(
@@ -132,6 +157,23 @@ class ZukoFlow(BaseTorchFlow):
         return xp.asarray(
             self._flow().log_prob(x_prime) + log_abs_det_jacobian
         )
+    
+    def forward(self, x, xp=torch_api):
+        x = torch.tensor(
+            x, dtype=torch.get_default_dtype(), device=self.device
+        )
+        x_prime, log_j_rescale = self.rescale(x)
+        z, log_abs_det_jacobian = self._flow().transform.call_and_ladj(x_prime)
+        return xp.asarray(z), xp.asarray(log_abs_det_jacobian + log_j_rescale)
+    
+    def inverse(self, z, xp=torch_api):
+        z = torch.tensor(
+            z, dtype=torch.get_default_dtype(), device=self.device
+        )
+        with torch.no_grad():
+            x_prime, log_abs_det_jacobian = self._flow().transform.inv.call_and_ladj(z)
+        x, log_j_rescale = self.inverse_rescale(x_prime)
+        return xp.asarray(x), xp.asarray(log_j_rescale + log_abs_det_jacobian)
 
 
 class ZukoFlowMatching(ZukoFlow):
