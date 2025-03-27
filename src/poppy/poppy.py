@@ -67,6 +67,11 @@ class Poppy:
         """The normalizing flow object."""
         return self._flow
 
+    @property
+    def sampler(self):
+        """The sampler object."""
+        return self._sampler
+
     def convert_to_samples(
         self,
         x,
@@ -76,7 +81,6 @@ class Poppy:
         evaluate: bool = True,
         xp=None,
     ) -> Samples:
-        
         if xp is None:
             xp = self.xp
         samples = Samples(
@@ -91,10 +95,14 @@ class Poppy:
         if evaluate:
             if log_prior is None:
                 logger.info("Evaluating log prior")
-                samples.log_prior = samples.xp.to_device(self.log_prior(samples), samples.device)
+                samples.log_prior = samples.xp.to_device(
+                    self.log_prior(samples), samples.device
+                )
             if log_likelihood is None:
                 logger.info("Evaluating log likelihood")
-                samples.log_likelihood = samples.xp.to_device(self.log_likelihood(samples), samples.device)
+                samples.log_likelihood = samples.xp.to_device(
+                    self.log_likelihood(samples), samples.device
+                )
             samples.compute_weights()
         return samples
 
@@ -121,7 +129,7 @@ class Poppy:
             dims=self.dims,
             device=self.device,
             data_transform=data_transform,
-            **self.flow_kwargs
+            **self.flow_kwargs,
         )
 
     def fit(self, samples: Samples, **kwargs) -> dict:
@@ -135,7 +143,7 @@ class Poppy:
         logger.info(f"Training with {len(samples.x)} samples")
         history = self.flow.fit(samples.x, **kwargs)
         return history
-       
+
     def init_sampler(self, sampler_type: str):
         if sampler_type == "importance":
             from .samplers.importance import ImportanceSampler as SamplerClass
@@ -155,7 +163,13 @@ class Poppy:
         )
         return sampler
 
-    def sample_posterior(self, n_samples: int = 1, sampler: str = "importance", xp=None, **kwargs) -> Samples:
+    def sample_posterior(
+        self,
+        n_samples: int = 1,
+        sampler: str = "importance",
+        xp=None,
+        **kwargs,
+    ) -> Samples:
         """Draw samples from the posterior distribution.
 
         Parameters
@@ -168,8 +182,8 @@ class Poppy:
         samples : Samples
             Samples object contain samples and their corresponding weights.
         """
-        self._posterior_sampler = self.init_sampler(sampler)
-        samples = self._posterior_sampler.sample(n_samples, **kwargs)
+        self._sampler = self.init_sampler(sampler)
+        samples = self._sampler.sample(n_samples, **kwargs)
         if xp is not None:
             samples = samples.to_namespace(xp)
         samples.parameters = self.parameters
