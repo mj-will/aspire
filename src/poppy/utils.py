@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from functools import partial
 import inspect
 import logging
-from array_api_compat import array_namespace
-from typing import TYPE_CHECKING
+from contextlib import contextmanager
+from functools import partial
+from typing import TYPE_CHECKING, Any
+
 import array_api_compat.numpy as np
+from array_api_compat import array_namespace, is_torch_namespace
 
 if TYPE_CHECKING:
-    from array_api_compat.common._typing import Array
     from multiprocessing import Pool
+
+    from array_api_compat.common._typing import Array
+
     from .poppy import Poppy
 
 logger = logging.getLogger(__name__)
@@ -17,14 +21,16 @@ logger = logging.getLogger(__name__)
 
 def configure_logger(log_level: str | int = "INFO") -> logging.Logger:
     """Configure the logger.
-    
+
     Adds a stream handler to the logger.
     """
     logger = logging.getLogger("poppy")
     logger.setLevel(log_level)
     ch = logging.StreamHandler()
     ch.setLevel(log_level)
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     ch.setFormatter(formatter)
     logger.addHandler(ch)
     return logger
@@ -43,6 +49,7 @@ class PoolHandler:
     pool : multiprocessing.Pool
         The pool to use for parallel computation.
     """
+
     def __init__(self, poppy_instance: Poppy, pool: Pool):
         self.poppy_instance = poppy_instance
         self.pool = pool
@@ -67,10 +74,12 @@ class PoolHandler:
         self.poppy_instance.log_likelihood = partial(
             self.original_log_likelihood, map_fn=self.pool.map
         )
+        return self.pool
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.poppy_instance.log_likelihood = self.original_log_likelihood
-
+        self.pool.close()
+        self.pool.join()
 
 
 def logit(x: Array, eps: float | None = None) -> tuple[Array, Array]:
@@ -95,7 +104,7 @@ def logit(x: Array, eps: float | None = None) -> tuple[Array, Array]:
     if eps:
         x = xp.clip(x, eps, 1 - eps)
     y = xp.log(x) - xp.log1p(-x)
-    log_j = -xp.log(y * (1 - y)).sum(-1)
+    log_j = (-xp.log(x) - xp.log1p(-x)).sum(-1)
     return y, log_j
 
 
@@ -116,13 +125,13 @@ def sigmoid(x: Array) -> tuple[Array, Array]:
     """
     xp = array_namespace(x)
     x = xp.divide(1, 1 + xp.exp(-x))
-    log_j = xp.log(x * (1 - x)).sum(-1)
+    log_j = (xp.log(x) + xp.log1p(-x)).sum(-1)
     return x, log_j
 
 
 def logsumexp(x: Array, axis: int | None = None) -> Array:
     """Implementation of logsumexp that works with array api.
-    
+
     This will be removed once the implementation in scipy is compatible.
     """
     xp = array_namespace(x)
@@ -132,7 +141,7 @@ def logsumexp(x: Array, axis: int | None = None) -> Array:
 
 def to_numpy(x: Array) -> np.ndarray:
     """Convert an array to a numpy array.
-    
+
     This automatically moves the device to the CPU.
     """
     return np.asarray(np.to_device(x, "cpu"))
@@ -140,6 +149,48 @@ def to_numpy(x: Array) -> np.ndarray:
 
 def effective_sample_size(log_w: Array) -> float:
     xp = array_namespace(log_w)
-    return xp.exp(
-        xp.asarray(logsumexp(log_w) * 2 - logsumexp(log_w * 2))
-    )
+    return xp.exp(xp.asarray(logsumexp(log_w) * 2 - logsumexp(log_w * 2)))
+
+
+@contextmanager
+def disable_gradients(xp, inference: bool = True):
+    """Disable gradients for a specific array API.
+
+    Usage:
+
+    ```python
+    with disable_gradients(xp):
+        # Do something
+    ```
+
+    Parameters
+    ----------
+    xp : module
+        The array API module to use.
+    inference : bool, optional
+        When using PyTorch, set to True to enable inference mode.
+    """
+    if is_torch_namespace(xp):
+        if inference:
+            with xp.inference_mode():
+                yield
+        else:
+            with xp.no_grad():
+                yield
+    else:
+        yield
+
+
+def encode_for_hdf5(value: Any) -> Any:
+    """Encode a value for storage in an HDF5 file."""
+    if isinstance(value, np.ndarray):
+        return value
+    if isinstance(value, (int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {k: encode_for_hdf5(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [encode_for_hdf5(v) for v in value]
+    if isinstance(value, set):
+        return {encode_for_hdf5(v) for v in value}
+    return value
