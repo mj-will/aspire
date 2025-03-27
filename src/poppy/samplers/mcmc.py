@@ -1,9 +1,7 @@
-from typing import Callable
 import numpy as np
 
-from .base import Sampler
 from ..samples import Samples, to_numpy
-from ..flows.base import Flow
+from .base import Sampler
 
 
 class MCMCSampler(Sampler):
@@ -11,16 +9,27 @@ class MCMCSampler(Sampler):
 
 
 class Emcee(MCMCSampler):
-
     def log_prob(self, z):
         x, log_abs_det_jacobian = self.flow.inverse(z)
         samples = Samples(x, xp=self.xp)
         samples.log_prior = self.log_prior(samples)
         samples.log_likelihood = self.log_likelihood(samples)
-        log_prob = samples.log_likelihood + samples.log_prior + samples.array_to_namespace(log_abs_det_jacobian)
+        log_prob = (
+            samples.log_likelihood
+            + samples.log_prior
+            + samples.array_to_namespace(log_abs_det_jacobian)
+        )
         return to_numpy(log_prob).flatten()
 
-    def sample(self, n_samples: int, nwalkers: int = None, nsteps: int = 500, rng=None, **kwargs) -> Samples:
+    def sample(
+        self,
+        n_samples: int,
+        nwalkers: int = None,
+        nsteps: int = 500,
+        rng=None,
+        discard=0,
+        **kwargs,
+    ) -> Samples:
         from emcee import EnsembleSampler
 
         nwalkers = nwalkers or n_samples
@@ -30,12 +39,12 @@ class Emcee(MCMCSampler):
             log_prob_fn=self.log_prob,
             vectorize=True,
         )
-        
+
         rng = rng or np.random.default_rng()
         p0 = rng.standard_normal((nwalkers, self.dims))
         self.sampler.run_mcmc(p0, nsteps, **kwargs)
-        
-        z = self.sampler.get_chain(flat=True)
+
+        z = self.sampler.get_chain(flat=True, discard=discard)
         x = self.flow.inverse(z)[0]
 
         x_evidence, log_q = self.flow.sample_and_log_prob(n_samples)
@@ -45,9 +54,17 @@ class Emcee(MCMCSampler):
         samples_evidence.compute_weights()
 
         samples_mcmc = Samples(x, xp=self.xp, parameters=self.parameters)
-        samples_mcmc.log_prior = samples_mcmc.array_to_namespace(self.log_prior(samples_mcmc))
-        samples_mcmc.log_likelihood = samples_mcmc.array_to_namespace(self.log_likelihood(samples_mcmc))
-        samples_mcmc.log_evidence = samples_mcmc.array_to_namespace(samples_evidence.log_evidence)
-        samples_mcmc.log_evidence_error = samples_mcmc.array_to_namespace(samples_evidence.log_evidence_error)
+        samples_mcmc.log_prior = samples_mcmc.array_to_namespace(
+            self.log_prior(samples_mcmc)
+        )
+        samples_mcmc.log_likelihood = samples_mcmc.array_to_namespace(
+            self.log_likelihood(samples_mcmc)
+        )
+        samples_mcmc.log_evidence = samples_mcmc.array_to_namespace(
+            samples_evidence.log_evidence
+        )
+        samples_mcmc.log_evidence_error = samples_mcmc.array_to_namespace(
+            samples_evidence.log_evidence_error
+        )
 
         return samples_mcmc
