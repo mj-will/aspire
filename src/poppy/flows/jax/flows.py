@@ -21,13 +21,13 @@ class FlowJax(Flow):
         self.data_transform = data_transform
 
     def fit(self, x):
-        from ...history import History
+        from ...history import FlowHistory
 
         x = jnp.asarray(x)
         x_prime = self.fit_data_transform(x)
         self.key, subkey = jrandom.split(self.key)
         self._flow, losses = fit_to_data(subkey, self._flow, x_prime)
-        return History(
+        return FlowHistory(
             training_loss=list(map(lambda x: x.item(), losses["train"])),
             validation_loss=list(map(lambda x: x.item(), losses["val"])),
         )
