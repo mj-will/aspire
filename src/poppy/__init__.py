@@ -8,7 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 from .poppy import Poppy
 
 try:
-    __version__ = version(__name__)
+    __version__ = version("bayesian-poppy")
 except PackageNotFoundError:
     __version__ = "unknown"
 
