@@ -4,10 +4,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import numpy as np
-from array_api_compat import array_namespace, is_numpy_namespace, to_device
+from array_api_compat import array_namespace, is_numpy_namespace, to_device, device as api_device, is_jax_array
 from array_api_compat.common._typing import Array
 
-from .utils import logsumexp, to_numpy
+from .utils import logsumexp, to_numpy, recursively_save_to_h5_file
 
 
 @dataclass
@@ -33,7 +33,7 @@ class BaseSamples:
             self.device = "cpu"
         self.x = self.array_to_namespace(self.x)
         if self.device is None:
-            self.device = self.xp.device(self.x)
+            self.device = api_device(self.x)
         if self.log_likelihood is not None:
             self.log_likelihood = self.array_to_namespace(self.log_likelihood)
         if self.log_prior is not None:
@@ -64,7 +64,7 @@ class BaseSamples:
 
     def array_to_namespace(self, x):
         """Convert an array to the same namespace as the samples"""
-        if is_numpy_namespace(self.xp):
+        if is_numpy_namespace(self.xp) and not is_jax_array(x):
             x = to_device(x, "cpu")
         x = self.xp.asarray(x)
         if self.device:
@@ -77,7 +77,6 @@ class BaseSamples:
             "log_likelihood": self.log_likelihood,
             "log_prior": self.log_prior,
             "log_q": self.log_q,
-            "log_w": self.log_w,
         }
         if flat:
             out.update(samples)
@@ -104,6 +103,27 @@ class BaseSamples:
             f"No. parameters: {len(self.parameters)}\n"
         )
         return out
+
+    def save(self, h5_file, path="samples", flat=False):
+        """Save the samples to an HDF5 file.
+
+        This converts the samples to numpy and then to a dictionary.
+        
+        Parameters
+        ----------
+        h5_file : h5py.File
+            The HDF5 file to save to.
+        path : str
+            The path in the HDF5 file to save to.
+        flat : bool
+            If True, save the samples as a flat dictionary.
+            If False, save the samples as a nested dictionary.
+        """
+        dictionary = self.to_numpy().to_dict(flat=flat)
+        recursively_save_to_h5_file(h5_file, path, dictionary)
+
+    def __len__(self):
+        return len(self.x)
 
 
 @dataclass
@@ -136,6 +156,7 @@ class Samples(BaseSamples):
             self.log_evidence = None
             self.evidence_error = None
             self.log_evidence_error = None
+            self.effective_sample_size = None
 
     @property
     def efficiency(self):
@@ -220,3 +241,4 @@ class Samples(BaseSamples):
                 f"Efficiency: {self.efficiency:.2f}\n"
             )
         return out
+    
