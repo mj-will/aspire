@@ -4,7 +4,7 @@ import math
 
 from scipy.special import erf, erfinv
 
-from .utils import logit, sigmoid
+from .utils import logit, sigmoid, update_at_indices
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ class DataTransform:
             logger.warning("Periodic parameters are not implemented yet.")
         self.periodic_parameters = []
         self.bounded_to_unbounded = bounded_to_unbounded
+        self.bounded_transform = bounded_transform
 
         self.xp = xp
         self.device = device
@@ -74,7 +75,7 @@ class DataTransform:
                 dtype=bool,
                 device=device,
             )
-            self.periodic_transform = PeriodicTransform(
+            self._periodic_transform = PeriodicTransform(
                 lower=lower_bounds[self.periodic_mask],
                 upper=upper_bounds[self.periodic_mask],
                 xp=self.xp,
@@ -84,16 +85,16 @@ class DataTransform:
             self.bounded_mask = self.xp.asarray(
                 [p in self.bounded_parameters for p in parameters], dtype=bool
             )
-            if bounded_transform == "probit":
+            if self.bounded_transform == "probit":
                 BoundedClass = ProbitTransform
-            elif bounded_transform == "logit":
+            elif self.bounded_transform == "logit":
                 BoundedClass = LogitTransform
             else:
                 raise ValueError(
-                    f"Unknown bounded transform: {bounded_transform}"
+                    f"Unknown bounded transform: {self.bounded_transform}"
                 )
 
-            self.bounded_transform = BoundedClass(
+            self._bounded_transform = BoundedClass(
                 lower=lower_bounds[self.bounded_mask],
                 upper=upper_bounds[self.bounded_mask],
                 xp=self.xp,
@@ -108,15 +109,19 @@ class DataTransform:
             logger.debug(
                 f"Fitting periodic transform to parameters: {self.periodic_parameters}"
             )
-            x[:, self.periodic_mask] = self.periodic_transform.fit(
-                x[:, self.periodic_mask]
+            x = update_at_indices(
+                x,
+                (slice(None), self.periodic_mask),
+                self._periodic_transform.fit(x[:, self.periodic_mask])
             )
         if self.bounded_parameters:
             logger.debug(
                 f"Fitting bounded transform to parameters: {self.bounded_parameters}"
             )
-            x[:, self.bounded_mask] = self.bounded_transform.fit(
-                x[:, self.bounded_mask]
+            x = update_at_indices(
+                x,
+                (slice(None), self.bounded_mask),
+                self._bounded_transform.fit(x[:, self.bounded_mask])
             )
         return self.affine_transform.fit(x)
 
@@ -124,15 +129,13 @@ class DataTransform:
         x = copy.copy(x)
         log_abs_det_jacobian = self.xp.zeros(len(x), device=self.device)
         if self.periodic_parameters:
-            x[:, self.periodic_mask], log_j_periodic = (
-                self.periodic_transform.forward(x[:, self.periodic_mask])
-            )
+            y, log_j_periodic = self._periodic_transform.forward(x[:, self.periodic_mask])
+            x = update_at_indices(x, (slice(None), self.periodic_mask), y)
             log_abs_det_jacobian += log_j_periodic
 
         if self.bounded_parameters:
-            x[:, self.bounded_mask], log_j_bounded = (
-                self.bounded_transform.forward(x[:, self.bounded_mask])
-            )
+            y, log_j_bounded = self._bounded_transform.forward(x[:, self.bounded_mask])
+            x = update_at_indices(x, (slice(None), self.bounded_mask), y)
             log_abs_det_jacobian += log_j_bounded
 
         x, log_j_affine = self.affine_transform.forward(x)
@@ -146,18 +149,28 @@ class DataTransform:
         log_abs_det_jacobian += log_j_affine
 
         if self.bounded_parameters:
-            x[:, self.bounded_mask], log_j_bounded = (
-                self.bounded_transform.inverse(x[:, self.bounded_mask])
-            )
+            y, log_j_bounded = self._bounded_transform.inverse(x[:, self.bounded_mask])
+            x = update_at_indices(x, (slice(None), self.bounded_mask), y)
             log_abs_det_jacobian += log_j_bounded
 
         if self.periodic_parameters:
-            x[:, self.periodic_mask], log_j_periodic = (
-                self.periodic_transform.inverse(x[:, self.periodic_mask])
-            )
+            y, log_j_periodic = self._periodic_transform.inverse(x[:, self.periodic_mask])
+            x = update_at_indices(x, (slice(None), self.periodic_mask), y)
             log_abs_det_jacobian += log_j_periodic
 
         return x, log_abs_det_jacobian
+    
+    def new_instance(self):
+        return self.__class__(
+            parameters=self.parameters,
+            periodic_parameters=self.periodic_parameters,
+            prior_bounds=self.prior_bounds,
+            bounded_to_unbounded=self.bounded_to_unbounded,
+            bounded_transform=self.bounded_transform,
+            device=self.device,
+            xp=self.xp,
+            eps=self.eps,
+        )
 
 
 class PeriodicTransform(DataTransform):
