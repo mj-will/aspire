@@ -26,8 +26,8 @@ def get_flow(
     *,
     key: jax.Array,
     dims: int,
-    flow_type: str | Callable,
-    bijection_type: str | flowjax.bijections.AbstractBijection,
+    flow_type: str | Callable = "masked_autoregressive_flow",
+    bijection_type: str | flowjax.bijections.AbstractBijection | None = None,
     bijection_kwargs: dict | None = None,
     **kwargs,
 ) -> flowjax.distributions.Transformed:
@@ -36,6 +36,10 @@ def get_flow(
 
     if isinstance(bijection_type, str):
         bijection_type = get_bijection_class(bijection_type)
+    if bijection_type is not None:
+        transformer = bijection_type(**bijection_kwargs)
+    else:
+        transformer = None
 
     if bijection_kwargs is None:
         bijection_kwargs = {}
@@ -45,6 +49,6 @@ def get_flow(
     return flow_type(
         subkey,
         base_dist=base_dist,
-        transformer=bijection_type(**bijection_kwargs),
+        transformer=transformer,
         **kwargs,
     )
