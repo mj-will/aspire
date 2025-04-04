@@ -1,3 +1,4 @@
+import copy
 import logging
 from dataclasses import dataclass
 from typing import Callable
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SMCSamples(BaseSamples):
     beta: float | None = None
+    log_evidence: float | None = None
     """Temperature parameter for the current samples."""
 
     def log_p_t(self, beta):
@@ -57,6 +59,14 @@ class SMCSamples(BaseSamples):
             beta=beta,
         )
 
+    def __str__(self):
+        out = super().__str__()
+        if self.log_evidence is not None:
+            out += (
+                f"Log evidence: {self.log_evidence:.2f}\n"
+            )
+        return out
+
 
 class SMCSampler(Sampler):
     """Base class for Sequential Monte Carlo samplers."""
@@ -87,9 +97,54 @@ class SMCSampler(Sampler):
         log_prob = to_numpy(samples.log_p_t(beta=beta)).flatten()
         log_prob[self.xp.isnan(log_prob)] = -self.xp.inf
         return log_prob
+    
 
+class PreconditionedSMC(SMCSampler):
+
+    def __init__(
+        self,
+        log_likelihood: Callable,
+        log_prior: Callable,
+        dims: int,
+        flow: Flow,
+        xp: Callable,
+        parameters: list[str] | None = None,
+        **kwargs,
+        
+    ):
+        super().__init__(log_likelihood, log_prior, dims, flow, xp, parameters)
+        self.pflow = None
+        self.pflow_kwargs = kwargs
+
+    def log_prob(self, z, beta=None):
+        x, log_j_flow = self.pflow.inverse(z)
+        samples = SMCSamples(x, xp=self.xp)
+        log_q = self.flow.log_prob(samples.x)
+        samples.log_q = samples.array_to_namespace(log_q)
+        samples.log_prior = self.log_prior(samples)
+        samples.log_likelihood = self.log_likelihood(samples)
+        # Emcee requires number arrays
+        log_prob = to_numpy(
+            samples.log_p_t(beta=beta) + samples.array_to_namespace(log_j_flow)
+        ).flatten()
+        log_prob[np.isnan(log_prob)] = -np.inf
+        return log_prob
+    
+    def init_pflow(self):
+        FlowClass = self.flow.__class__
+        self.pflow = FlowClass(
+            dims=self.dims,
+            device=self.flow.device,
+            data_transform=self.flow.data_transform.new_instance(),
+            **self.pflow_kwargs,
+        )
+    
+    def train_preconditioner(self, samples, **kwargs):
+        self.init_pflow()
+        self.pflow.fit(samples.x, **kwargs)
 
 class EmceeSMC(SMCSampler):
+
     def sample(
         self,
         n_samples: int,
@@ -101,6 +156,7 @@ class EmceeSMC(SMCSampler):
         self.emcee_kwargs = emcee_kwargs or {}
         self.emcee_kwargs.setdefault("nsteps", 50)
         self.emcee_kwargs.setdefault("progress", True)
+        self.emcee_moves = self.emcee_kwargs.pop("moves", None)
 
         x, log_q = self.flow.sample_and_log_prob(n_samples)
         self.beta = 0.0
@@ -112,7 +168,7 @@ class EmceeSMC(SMCSampler):
 
         logger.debug(f"Initial sample summary: {samples}")
 
-        history = SMCHistory()
+        self.history = SMCHistory()
 
         beta_step = 1 / n_steps
         beta = 0.0
@@ -122,6 +178,8 @@ class EmceeSMC(SMCSampler):
             iterations += 1
             if not adaptive:
                 beta += beta_step
+                if beta >= 1.0:
+                    beta = 1.0
             else:
                 beta_max = 1.0
                 ess = effective_sample_size(samples.log_weights(beta_max))
@@ -137,21 +195,22 @@ class EmceeSMC(SMCSampler):
                         break
                     else:
                         beta_max = beta
-                    beta = 0.5 * (beta_max + beta_min)
+                    # Make beta is never larger than 1
+                    beta = min(0.5 * (beta_max + beta_min), 1)
             logger.info(f"it {iterations} - beta: {beta}")
-            history.beta.append(beta)
+            self.history.beta.append(beta)
 
             ess = effective_sample_size(samples.log_weights(beta))
-            history.ess.append(ess)
+            self.history.ess.append(ess)
             logger.info(
                 f"it {iterations} - ESS: {ess:.1f} ({ess / n_samples:.2f} efficiency)"
             )
-            history.ess_target.append(
+            self.history.ess_target.append(
                 effective_sample_size(samples.log_weights(1.0))
             )
 
             log_evidence_ratio = samples.log_evidence_ratio(beta)
-            history.log_norm_ratio.append(log_evidence_ratio)
+            self.history.log_norm_ratio.append(log_evidence_ratio)
             logger.info(
                 f"it {iterations} - Log evidence ratio: {log_evidence_ratio}"
             )
@@ -161,10 +220,13 @@ class EmceeSMC(SMCSampler):
             if beta == 1.0:
                 break
 
-        self.history = history
         samples.log_q = None
+        samples.log_evidence = samples.xp.sum(self.history.log_norm_ratio)
         logger.info(
             f"Likelihood evaluations: {iterations * n_samples * self.emcee_kwargs['nsteps']}"
+        )
+        logger.info(
+            f"Log evidence: {samples.log_evidence:.2f}"
         )
         return samples
 
@@ -176,9 +238,48 @@ class EmceeSMC(SMCSampler):
             self.log_prob,
             args=(beta,),
             vectorize=True,
+            moves=self.emcee_moves,
         )
         sampler.run_mcmc(to_numpy(particles.x), **self.emcee_kwargs)
+        self.history.mcmc_acceptance.append(np.mean(sampler.acceptance_fraction))
+        self.history.mcmc_autocorr.append(
+            sampler.get_autocorr_time(quiet=True, discard=int(0.2 * self.emcee_kwargs["nsteps"]))
+        )
         x = sampler.get_chain(flat=False)[-1, ...]
+        samples = SMCSamples(x, xp=self.xp, beta=beta)
+        samples.log_q = samples.array_to_namespace(
+            self.flow.log_prob(samples.x)
+        )
+        samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
+        samples.log_likelihood = samples.array_to_namespace(
+            self.log_likelihood(samples)
+        )
+        if np.isnan(samples.log_q).any():
+            raise ValueError("Log proposal contains NaN values")
+        return samples
+    
+
+class EmceePSMC(PreconditionedSMC, EmceeSMC):
+
+    def mutate(self, particles, beta):
+        self.train_preconditioner(particles)
+        logger.info("Mutating particles")
+        sampler = emcee.EnsembleSampler(
+            len(particles.x),
+            self.dims,
+            self.log_prob,
+            args=(beta,),
+            vectorize=True,
+            moves=self.emcee_moves,
+        )
+        z = to_numpy(self.pflow.forward(particles.x)[0])
+        sampler.run_mcmc(z, **self.emcee_kwargs)
+        self.history.mcmc_acceptance.append(np.mean(sampler.acceptance_fraction))
+        self.history.mcmc_autocorr.append(
+            sampler.get_autocorr_time(quiet=True, discard=int(0.2 * self.emcee_kwargs["nsteps"]))
+        )
+        z = sampler.get_chain(flat=False)[-1, ...]
+        x, _ = self.pflow.inverse(z)
         samples = SMCSamples(x, xp=self.xp, beta=beta)
         samples.log_q = samples.array_to_namespace(
             self.flow.log_prob(samples.x)
