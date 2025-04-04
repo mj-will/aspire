@@ -136,6 +136,7 @@ class ZukoFlow(BaseTorchFlow):
                 with torch.no_grad():
                     val_loss += self.loss_fn(x_batch).item()
             history.validation_loss.append(val_loss / len(val_dataset))
+        self.flow.eval()
         return history
 
     def sample_and_log_prob(self, n_samples: int, xp=torch_api):
