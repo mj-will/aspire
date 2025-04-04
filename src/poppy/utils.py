@@ -194,3 +194,30 @@ def encode_for_hdf5(value: Any) -> Any:
     if isinstance(value, set):
         return {encode_for_hdf5(v) for v in value}
     return value
+
+
+def update_at_indices(x: Array, slc: Array, y: Array) -> Array:
+    """Update an array at specific indices."
+
+    This is a workaround for the fact that array API does not support
+    advanced indexing with all backends.
+
+    Parameters
+    ----------
+    x : Array
+        The array to update.
+    slc : Array
+        The indices to update.
+    y : Array
+        The values to set at the indices.
+    
+    Returns
+    -------
+    Array
+        The updated array.
+    """
+    try:
+        x[slc] = y
+        return x
+    except TypeError:
+        return x.at[slc].set(y)
