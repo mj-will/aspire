@@ -1,7 +1,10 @@
+import copy
 from dataclasses import dataclass, field
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
+
+from .utils import recursively_save_to_h5_file
 
 
 @dataclass
@@ -10,6 +13,10 @@ class History:
 
     pass
 
+    def save(self, h5_file, path="history"):
+        """Save the history to an HDF5 file."""
+        dictionary = copy.deepcopy(self.__dict__)
+        recursively_save_to_h5_file(h5_file, path, dictionary)
 
 @dataclass
 class FlowHistory(History):
@@ -28,12 +35,7 @@ class FlowHistory(History):
 
     def save(self, h5_file, path="flow_history"):
         """Save the history to an HDF5 file."""
-        h5_file.create_dataset(
-            path + "/training_loss", data=self.training_loss
-        )
-        h5_file.create_dataset(
-            path + "/validation_loss", data=self.validation_loss
-        )
+        super().save(h5_file, path=path)
 
 
 @dataclass
@@ -42,15 +44,12 @@ class SMCHistory(History):
     beta: list[float] = field(default_factory=list)
     ess: list[float] = field(default_factory=list)
     ess_target: list[float] = field(default_factory=list)
+    mcmc_autocorr: list[float] = field(default_factory=list)
+    mcmc_acceptance: list[float] = field(default_factory=list)
 
     def save(self, h5_file, path="smc_history"):
         """Save the history to an HDF5 file."""
-        h5_file.create_dataset(
-            path + "/log_norm_ratio", data=self.log_norm_ratio
-        )
-        h5_file.create_dataset(path + "/beta", data=self.beta)
-        h5_file.create_dataset(path + "/ess", data=self.ess)
-        h5_file.create_dataset(path + "/ess_target", data=self.ess_target)
+        super().save(h5_file, path=path)
 
     def plot_beta(self, ax=None) -> Figure | None:
         if ax is None:
@@ -91,16 +90,41 @@ class SMCHistory(History):
         ax.set_xlabel("Iteration")
         ax.set_ylabel("ESS target")
         return fig
+    
+    def plot_mcmc_acceptance(self, ax=None) -> Figure | None:
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = None
+        ax.plot(self.mcmc_acceptance)
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("MCMC Acceptance")
+        return fig
+    
+    def plot_mcmc_autocorr(self, ax=None) -> Figure | None:
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = None
+        ax.plot(self.mcmc_autocorr)
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("MCMC Autocorr")
+        return fig
 
-    def plot(self) -> Figure:
+    def plot(self, fig: Figure | None = None) -> Figure:
+
         methods = [
             self.plot_beta,
             self.plot_log_norm_ratio,
             self.plot_ess,
             self.plot_ess_target,
+            self.plot_mcmc_acceptance,
         ]
 
-        fig, axs = plt.subplots(len(methods), 1, sharex=True)
+        if fig is None:
+            fig, axs = plt.subplots(len(methods), 1, sharex=True)
+        else:
+            axs = fig.axes
 
         for method, ax in zip(methods, axs):
             method(ax)
