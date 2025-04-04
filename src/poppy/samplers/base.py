@@ -22,6 +22,7 @@ class Sampler:
         self.dims = dims
         self.xp = xp
         self.parameters = parameters
+        self.history = None
 
     def sample(self, n_samples: int) -> Samples:
         raise NotImplementedError
