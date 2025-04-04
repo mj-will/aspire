@@ -5,9 +5,10 @@ import logging
 from contextlib import contextmanager
 from functools import partial
 from typing import TYPE_CHECKING, Any
+import h5py
 
 import array_api_compat.numpy as np
-from array_api_compat import array_namespace, is_torch_namespace
+from array_api_compat import array_namespace, is_torch_namespace, to_device
 
 if TYPE_CHECKING:
     from multiprocessing import Pool
@@ -144,7 +145,10 @@ def to_numpy(x: Array) -> np.ndarray:
 
     This automatically moves the device to the CPU.
     """
-    return np.asarray(np.to_device(x, "cpu"))
+    try:
+        return np.asarray(to_device(x, "cpu"))
+    except ValueError:
+        return np.asarray(x)
 
 
 def effective_sample_size(log_w: Array) -> float:
@@ -187,13 +191,53 @@ def encode_for_hdf5(value: Any) -> Any:
         return value
     if isinstance(value, (int, float, str)):
         return value
-    if isinstance(value, dict):
-        return {k: encode_for_hdf5(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [encode_for_hdf5(v) for v in value]
     if isinstance(value, set):
         return {encode_for_hdf5(v) for v in value}
+    if value is None:
+        return "__none__"
     return value
+
+
+def recursively_save_to_h5_file(h5_file, path, dictionary):
+    """Recursively save a dictionary to an HDF5 file."""
+    for key, value in dictionary.items():
+        if isinstance(value, dict):
+            recursively_save_to_h5_file(h5_file, f"{path}/{key}", value)
+        else:
+            h5_file.create_dataset(f"{path}/{key}", data=encode_for_hdf5(value))
+
+
+def get_package_version(package_name: str) -> str:
+    """Get the version of a package.
+
+    Parameters
+    ----------
+    package_name : str
+        The name of the package.
+
+    Returns
+    -------
+    str
+        The version of the package.
+    """
+    try:
+        module = __import__(package_name)
+        return module.__version__
+    except ImportError:
+        return "not installed"
+
+
+class PoppyFile(h5py.File):
+    """A subclass of h5py.File that adds metadata to the file."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._set_poppy_metadata()
+
+    def _set_poppy_metadata(self):
+        from . import __version__ as poppy_version
+        self.attrs["poppy_version"] = poppy_version
 
 
 def update_at_indices(x: Array, slc: Array, y: Array) -> Array:
