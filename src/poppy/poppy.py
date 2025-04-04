@@ -1,10 +1,13 @@
 import logging
 import multiprocessing as mp
 from typing import Callable
+import h5py
 
 from .flows import get_flow_wrapper
 from .samples import Samples
 from .transforms import DataTransform
+from .history import History
+from .utils import recursively_save_to_h5_file
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,7 @@ class Poppy:
         periodic_parameters: list[str] | None = None,
         prior_bounds: dict[str, tuple[float, float]] | None = None,
         bounded_to_unbounded: bool = True,
-        bounded_transform: str = "probit",
+        bounded_transform: str = "logit",
         flow_matching: bool = False,
         device: str | None = None,
         xp: None = None,
@@ -132,7 +135,7 @@ class Poppy:
             **self.flow_kwargs,
         )
 
-    def fit(self, samples: Samples, **kwargs) -> dict:
+    def fit(self, samples: Samples, **kwargs) -> History:
         if self.xp is None:
             self.xp = samples.xp
 
@@ -144,13 +147,22 @@ class Poppy:
         history = self.flow.fit(samples.x, **kwargs)
         return history
 
-    def init_sampler(self, sampler_type: str):
+    def init_sampler(self, sampler_type: str, **kwargs) -> Callable:
+        """Initialize the sampler for posterior sampling.
+        
+        Parameters
+        ----------
+        sampler_type : str
+            The type of sampler to use. Options are 'importance', 'emcee', or 'smc'.
+        """
         if sampler_type == "importance":
             from .samplers.importance import ImportanceSampler as SamplerClass
         elif sampler_type == "emcee":
             from .samplers.mcmc import Emcee as SamplerClass
         elif sampler_type == "smc":
             from .samplers.smc import EmceeSMC as SamplerClass
+        elif sampler_type == "psmc":
+            from .samplers.smc import EmceePSMC as SamplerClass
         else:
             raise ValueError
 
@@ -160,6 +172,7 @@ class Poppy:
             dims=self.dims,
             flow=self.flow,
             xp=self.xp,
+            **kwargs,
         )
         return sampler
 
@@ -168,6 +181,8 @@ class Poppy:
         n_samples: int = 1,
         sampler: str = "importance",
         xp=None,
+        return_history: bool = False,
+        sampler_kwargs: dict = None,
         **kwargs,
     ) -> Samples:
         """Draw samples from the posterior distribution.
@@ -182,14 +197,18 @@ class Poppy:
         samples : Samples
             Samples object contain samples and their corresponding weights.
         """
-        self._sampler = self.init_sampler(sampler)
+        sampler_kwargs = sampler_kwargs or {}
+        self._sampler = self.init_sampler(sampler, **sampler_kwargs)
         samples = self._sampler.sample(n_samples, **kwargs)
         if xp is not None:
             samples = samples.to_namespace(xp)
         samples.parameters = self.parameters
         logger.info("Sample summary:")
         logger.info(samples)
-        return samples
+        if return_history:
+            return samples, self._sampler.history
+        else:
+            return samples
 
     def enable_pool(self, pool: mp.Pool):
         """Context manager to temporarily replace the log_likelihood method
@@ -206,6 +225,7 @@ class Poppy:
         return PoolHandler(self, pool)
 
     def config_dict(self) -> dict:
+        """Return a dictionary with the configuration of the Poppy object."""
         return {
             # "log_likelihood": self.log_likelihood,
             # "log_prior": self.log_prior,
@@ -222,8 +242,16 @@ class Poppy:
             "flow_kwargs": self.flow_kwargs,
             "eps": self.eps,
         }
+    
+    def save_config(self, h5_file: h5py.File, path="poppy_config") -> None:
+        """Save the configuration to an HDF5 file."""
+        recursively_save_to_h5_file(
+            h5_file,
+            path,
+            self.config_dict(),
+        )
 
-    def save_config(self, filename: str) -> None:
+    def save_config_to_json(self, filename: str) -> None:
         """Save the configuration to a JSON file."""
         import json
 
