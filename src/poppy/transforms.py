@@ -1,7 +1,9 @@
 import copy
 import logging
 import math
+from typing import Any
 
+from array_api_compat import is_torch_namespace
 from scipy.special import erf, erfinv
 
 from .utils import logit, sigmoid, update_at_indices
@@ -20,6 +22,7 @@ class DataTransform:
         device=None,
         xp: None = None,
         eps: float = 1e-6,
+        dtype: Any = None,
     ):
         if prior_bounds is None:
             logger.warning(
@@ -40,6 +43,10 @@ class DataTransform:
         self.device = device
         self.eps = eps
 
+        if is_torch_namespace(self.xp) and dtype is None:
+            dtype = self.xp.get_default_dtype()
+        self.dtype = dtype
+
         if prior_bounds is None:
             self.prior_bounds = None
             self.bounded_parameters = None
@@ -48,7 +55,7 @@ class DataTransform:
         else:
             logger.info(f"Prior bounds: {prior_bounds}")
             self.prior_bounds = {
-                k: self.xp.asarray(v, device=device) for k, v in prior_bounds.items()
+                k: self.xp.asarray(v, device=device, dtype=self.dtype) for k, v in prior_bounds.items()
             }
             if bounded_to_unbounded:
                 self.bounded_parameters = [
@@ -62,10 +69,12 @@ class DataTransform:
             lower_bounds = self.xp.asarray(
                 [self.prior_bounds[p][0] for p in parameters],
                 device=device,
+                dtype=self.dtype,
             )
             upper_bounds = self.xp.asarray(
                 [self.prior_bounds[p][1] for p in parameters],
                 device=device,
+                dtype=self.dtype,
             )
 
         if self.periodic_parameters:
@@ -177,9 +186,9 @@ class PeriodicTransform(DataTransform):
     name: str = "periodic"
     requires_prior_bounds: bool = True
 
-    def __init__(self, lower, upper, xp):
-        self.lower = lower
-        self.upper = upper
+    def __init__(self, lower, upper, xp, dtype=None):
+        self.lower = xp.asarray(lower, dtype=dtype)
+        self.upper = xp.asarray(upper, dtype=dtype)
         self._width = upper - lower
         self._shift = None
         self.xp = xp
@@ -201,9 +210,9 @@ class ProbitTransform(DataTransform):
     name: str = "probit"
     requires_prior_bounds: bool = True
 
-    def __init__(self, lower, upper, xp, eps=1e-6):
-        self.lower = lower
-        self.upper = upper
+    def __init__(self, lower, upper, xp, eps=1e-6, dtype=None):
+        self.lower = xp.asarray(lower, dtype=dtype)
+        self.upper = xp.asarray(upper, dtype=dtype)
         self._scale_log_abs_det_jacobian = -xp.log(upper - lower).sum()
         self.eps = eps
         self.xp = xp
@@ -236,9 +245,9 @@ class LogitTransform(DataTransform):
     name: str = "logit"
     requires_prior_bounds: bool = True
 
-    def __init__(self, lower, upper, xp, eps=1e-6):
-        self.lower = lower
-        self.upper = upper
+    def __init__(self, lower, upper, xp, eps=1e-6, dtype=None):
+        self.lower = xp.asarray(lower, dtype=dtype)
+        self.upper = xp.asarray(upper, dtype=dtype)
         self._scale_log_abs_det_jacobian = -xp.log(upper - lower).sum()
         self.eps = eps
         self.xp = xp
