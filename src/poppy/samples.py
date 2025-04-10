@@ -137,8 +137,8 @@ class Samples(BaseSamples):
     weights: Array = field(init=False)
     evidence: float = field(init=False)
     evidence_error: float = field(init=False)
-    log_evidence: float = field(init=False)
-    log_evidence_error: float = field(init=False)
+    log_evidence: float | None = None
+    log_evidence_error: float | None = None
     effective_sample_size: float = field(init=False)
 
     def __post_init__(self):
@@ -153,9 +153,7 @@ class Samples(BaseSamples):
             self.log_w = None
             self.weights = None
             self.evidence = None
-            self.log_evidence = None
             self.evidence_error = None
-            self.log_evidence_error = None
             self.effective_sample_size = None
 
     @property
@@ -241,4 +239,26 @@ class Samples(BaseSamples):
                 f"Efficiency: {self.efficiency:.2f}\n"
             )
         return out
+
+    def to_namespace(self, xp):
+        return self.__class__(
+            x=xp.asarray(self.x),
+            parameters=self.parameters,
+            log_likelihood=xp.asarray(self.log_likelihood) if self.log_likelihood is not None else None,
+            log_prior=xp.asarray(self.log_prior) if self.log_prior is not None else None,
+            log_q=xp.asarray(self.log_q) if self.log_q is not None else None,
+            log_evidence=xp.asarray(self.log_evidence) if self.log_evidence is not None else None,
+            log_evidence_error=xp.asarray(self.log_evidence_error) if self.log_evidence_error is not None else None,
+        )
+    
+    def to_numpy(self):
+        return self.__class__(
+            x=to_numpy(self.x),
+            parameters=self.parameters,
+            log_likelihood=to_numpy(self.log_likelihood) if self.log_likelihood is not None else None,
+            log_prior=to_numpy(self.log_prior) if self.log_prior is not None else None,
+            log_q=to_numpy(self.log_q) if self.log_q is not None else None,
+            log_evidence=self.log_evidence if self.log_evidence is not None else None,
+            log_evidence_error=self.log_evidence_error if self.log_evidence_error is not None else None,
+        )
     
