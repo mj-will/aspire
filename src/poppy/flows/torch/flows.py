@@ -81,6 +81,7 @@ class ZukoFlow(BaseTorchFlow):
             )
         else:
             x = torch.clone(x)
+            x = x.type(torch.get_default_dtype())
             x = x.to(self.device)
         x_prime = self.fit_data_transform(x)
         indices = torch.randperm(x_prime.shape[0])
@@ -92,11 +93,30 @@ class ZukoFlow(BaseTorchFlow):
             dtype=torch.get_default_dtype(),
             device=self.device,
         )
+
+        if torch.isnan(x_train).any():
+            raise ValueError(
+                "Training data contains NaN values."
+            )
+        if not torch.isfinite(x_train).all():
+            raise ValueError(
+                "Training data contains infinite values."
+            )
+
         x_val = torch.as_tensor(
             x_prime[-int(validation_fraction * n) :],
             dtype=torch.get_default_dtype(),
             device=self.device,
         )
+        if torch.isnan(x_val).any():
+            raise ValueError(
+                "Validation data contains infinite values."
+            )
+        
+        if not torch.isfinite(x_val).all():
+            raise ValueError(
+                "Validation data contains infinite values."
+            )
 
         dataset = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(x_train),
