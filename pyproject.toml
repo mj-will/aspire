@@ -37,6 +37,9 @@ test = [
 
 [tool.setuptools_scm]
 
+[tool.setuptools.package-dir]
+poppy = "src/poppy"
+
 [tool.ruff]
 line-length = 79
 indent-width = 4
