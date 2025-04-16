@@ -188,7 +188,12 @@ def disable_gradients(xp, inference: bool = True):
 
 
 def encode_for_hdf5(value: Any) -> Any:
-    """Encode a value for storage in an HDF5 file."""
+    """Encode a value for storage in an HDF5 file.
+    
+    Special cases:
+    - None is replaced with "__none__"
+    - Empty dictionaries are replaced with "__empty_dict__"
+    """
     if isinstance(value, np.ndarray):
         return value
     if isinstance(value, (int, float, str)):
@@ -197,6 +202,11 @@ def encode_for_hdf5(value: Any) -> Any:
         return [encode_for_hdf5(v) for v in value]
     if isinstance(value, set):
         return {encode_for_hdf5(v) for v in value}
+    if isinstance(value, dict):
+        if not value:
+            return "__empty_dict__"
+        else:
+            return {k: encode_for_hdf5(v) for k, v in value.items()}
     if value is None:
         return "__none__"
     return value
