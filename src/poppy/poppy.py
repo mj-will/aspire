@@ -23,8 +23,31 @@ class Poppy:
         The log prior function.
     dims : int
         The number of dimensions.
+    parameters : list[str] | None
+        The list of parameter names. If None, any samples objects will not
+        have the parameters names specified.
+    periodic_parameters : list[str] | None
+        The list of periodic parameters.
+    prior_bounds : dict[str, tuple[float, float]] | None
+        The bounds for the prior. If None, some parameter transforms cannot
+        be applied.
+    bounded_to_unbounded : bool
+        Whether to transform bounded parameters to unbounded ones.
+    bounded_transform : str
+        The transformation to use for bounded parameters. Options are
+        'logit', 'exp', or 'tanh'.
+    device : str | None
+        The device to use for the flow. If None, the default device will be
+        used. This is only used when using the PyTorch backend.
+    xp : Callable | None
+        The array backend to use. If None, the default backend will be
+        used.
+    flow_backend : str
+        The backend to use for the flow. Options are 'zuko' or 'flowjax'.
     flow_matching : bool
         Whether to use flow matching.
+    eps : float
+        The epsilon value to use for data transforms.
     **kwargs
         Keyword arguments to pass to the flow.
     """
@@ -40,10 +63,10 @@ class Poppy:
         prior_bounds: dict[str, tuple[float, float]] | None = None,
         bounded_to_unbounded: bool = True,
         bounded_transform: str = "logit",
-        flow_matching: bool = False,
         device: str | None = None,
-        xp: None = None,
+        xp: Callable | None = None,
         flow_backend: str = "zuko",
+        flow_matching: bool = False,
         eps: float = 1e-6,
         **kwargs,
     ) -> None:
@@ -128,6 +151,7 @@ class Poppy:
             backend=self.flow_backend, flow_matching=self.flow_matching
         )
 
+        logger.info(f"Configuring {FlowClass} with kwargs: {self.flow_kwargs}")
         self._flow = FlowClass(
             dims=self.dims,
             device=self.device,
