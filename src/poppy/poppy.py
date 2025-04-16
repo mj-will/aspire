@@ -239,7 +239,7 @@ class Poppy:
         else:
             return samples
 
-    def enable_pool(self, pool: mp.Pool):
+    def enable_pool(self, pool: mp.Pool, **kwargs):
         """Context manager to temporarily replace the log_likelihood method
         with a version that uses a multiprocessing pool to parallelize
         computation.
@@ -251,7 +251,7 @@ class Poppy:
         """
         from .utils import PoolHandler
 
-        return PoolHandler(self, pool)
+        return PoolHandler(self, pool, **kwargs)
 
     def config_dict(self) -> dict:
         """Return a dictionary with the configuration of the Poppy object."""
