@@ -33,9 +33,7 @@ class DataTransform:
                 "Must specify prior bounds to use periodic parameters."
             )
         self.parameters = parameters
-        if periodic_parameters:
-            logger.warning("Periodic parameters are not implemented yet.")
-        self.periodic_parameters = []
+        self.periodic_parameters = periodic_parameters
         self.bounded_to_unbounded = bounded_to_unbounded
         self.bounded_transform = bounded_transform
 
@@ -55,7 +53,7 @@ class DataTransform:
         else:
             logger.info(f"Prior bounds: {prior_bounds}")
             self.prior_bounds = {
-                k: self.xp.asarray(v, device=device, dtype=self.dtype) for k, v in prior_bounds.items()
+                k: self.xp.asarray(prior_bounds[k], device=device, dtype=self.dtype) for k in self.parameters
             }
             if bounded_to_unbounded:
                 self.bounded_parameters = [
@@ -192,7 +190,6 @@ class PeriodicTransform(DataTransform):
         self._width = upper - lower
         self._shift = None
         self.xp = xp
-        assert False
 
     def fit(self, x):
         return self.forward(x)[0]
