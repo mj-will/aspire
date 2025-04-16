@@ -1,6 +1,7 @@
 import numpy as np
 
 from ..samples import Samples, to_numpy
+from ..utils import track_calls
 from .base import Sampler
 
 
@@ -21,6 +22,7 @@ class Emcee(MCMCSampler):
         )
         return to_numpy(log_prob).flatten()
 
+    @track_calls
     def sample(
         self,
         n_samples: int,

@@ -3,6 +3,7 @@ from typing import Callable
 
 from ..samples import Samples
 from ..flows.base import Flow
+from ..utils import track_calls
 
 
 class Sampler:
@@ -24,5 +25,6 @@ class Sampler:
         self.parameters = parameters
         self.history = None
 
+    @track_calls
     def sample(self, n_samples: int) -> Samples:
         raise NotImplementedError

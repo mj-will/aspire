@@ -1,9 +1,11 @@
 
 from .base import Sampler
 from ..samples import Samples
+from ..utils import track_calls
 
 class ImportanceSampler(Sampler):
 
+    @track_calls
     def sample(self, n_samples: int) -> Samples:
         x, log_q = self.flow.sample_and_log_prob(n_samples)
         samples = Samples(x, log_q=log_q, xp=self.xp, parameters=self.parameters)
