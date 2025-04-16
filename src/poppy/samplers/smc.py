@@ -1,4 +1,3 @@
-import copy
 import logging
 from dataclasses import dataclass
 from typing import Callable
@@ -9,8 +8,8 @@ from array_api_compat.common._typing import Array
 
 from ..flows.base import Flow
 from ..history import SMCHistory
-from ..samples import BaseSamples
-from ..utils import effective_sample_size, logsumexp, to_numpy
+from ..samples import BaseSamples, Samples
+from ..utils import effective_sample_size, logsumexp, to_numpy, track_calls
 from .base import Sampler
 
 logger = logging.getLogger(__name__)
@@ -66,6 +65,19 @@ class SMCSamples(BaseSamples):
                 f"Log evidence: {self.log_evidence:.2f}\n"
             )
         return out
+
+    def to_standard_samples(self):
+        """Convert the samples to standard samples."""
+        return Samples(
+            x=self.x,
+            log_likelihood=self.log_likelihood,
+            log_prior=self.log_prior,
+            xp=self.xp,
+            parameters=self.parameters,
+            log_evidence=self.log_evidence,
+            log_evidence_error=self.log_evidence_error,
+        )
+    
 
 
 class SMCSampler(Sampler):
@@ -123,7 +135,7 @@ class PreconditionedSMC(SMCSampler):
         samples.log_q = samples.array_to_namespace(log_q)
         samples.log_prior = self.log_prior(samples)
         samples.log_likelihood = self.log_likelihood(samples)
-        # Emcee requires number arrays
+        # Emcee requires numpy arrays
         log_prob = to_numpy(
             samples.log_p_t(beta=beta) + samples.array_to_namespace(log_j_flow)
         ).flatten()
@@ -143,8 +155,14 @@ class PreconditionedSMC(SMCSampler):
         self.init_pflow()
         self.pflow.fit(samples.x, **kwargs)
 
+    def config_dict(self, include_sample_calls = True):
+        config =  super().config_dict(include_sample_calls)
+        config["preconditioner_kwargs"] = self.pflow_kwargs
+        return config
+    
 class EmceeSMC(SMCSampler):
 
+    @track_calls
     def sample(
         self,
         n_samples: int,
@@ -154,7 +172,7 @@ class EmceeSMC(SMCSampler):
         emcee_kwargs: dict | None = None,
     ):
         self.emcee_kwargs = emcee_kwargs or {}
-        self.emcee_kwargs.setdefault("nsteps", 50)
+        self.emcee_kwargs.setdefault("nsteps", 5 * self.dims )
         self.emcee_kwargs.setdefault("progress", True)
         self.emcee_moves = self.emcee_kwargs.pop("moves", None)
 
@@ -165,6 +183,13 @@ class EmceeSMC(SMCSampler):
         samples.log_likelihood = samples.array_to_namespace(
             self.log_likelihood(samples)
         )
+
+        if self.xp.isnan(samples.log_q).any():
+            raise ValueError("Log proposal contains NaN values")
+        if self.xp.isnan(samples.log_prior).any():
+            raise ValueError("Log prior contains NaN values")
+        if self.xp.isnan(samples.log_likelihood).any():
+            raise ValueError("Log likelihood contains NaN values")
 
         logger.debug(f"Initial sample summary: {samples}")
 
@@ -220,15 +245,16 @@ class EmceeSMC(SMCSampler):
             if beta == 1.0:
                 break
 
-        samples.log_q = None
-        samples.log_evidence = samples.xp.sum(self.history.log_norm_ratio)
         logger.info(
             f"Likelihood evaluations: {iterations * n_samples * self.emcee_kwargs['nsteps']}"
         )
+        samples.log_evidence = samples.xp.sum(self.history.log_norm_ratio)
+        samples.log_evidence_error = samples.xp.nan
+        final_samples = samples.to_standard_samples()
         logger.info(
-            f"Log evidence: {samples.log_evidence:.2f}"
+            f"Log evidence: {final_samples.log_evidence:.2f}"
         )
-        return samples
+        return final_samples
 
     def mutate(self, particles, beta):
         logger.info("Mutating particles")
