@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import inspect
 import logging
 from contextlib import contextmanager
 from functools import partial
 from typing import TYPE_CHECKING, Any
 import h5py
+import wrapt
 
 import array_api_compat.numpy as np
 from array_api_compat import array_namespace, is_torch_namespace, to_device
@@ -265,3 +267,47 @@ def update_at_indices(x: Array, slc: Array, y: Array) -> Array:
         return x
     except TypeError:
         return x.at[slc].set(y)
+
+
+@dataclass
+class CallHistory:
+    """Class to store the history of calls to a function.
+
+    Attributes
+    ----------
+    args : list[tuple]
+        The positional arguments of each call.
+    kwargs : list[dict]
+        The keyword arguments of each call.
+    """
+    args: list[tuple]
+    kwargs: list[dict]
+
+
+def track_calls(wrapped=None):
+    """Decorator to track calls to a function.
+    
+    The decorator adds a :code:`calls` attribute to the wrapped function,
+    which is a :py:class:`CallHistory` object that stores the arguments and
+    keyword arguments of each call.
+    """
+    @wrapt.decorator
+    def wrapper(wrapped_func, instance, args, kwargs):
+        # If instance is provided, we're dealing with a method.
+        if instance:
+            # Attach `calls` attribute to the method's `__func__`, which is the original function
+            if not hasattr(wrapped_func.__func__, 'calls'):
+                wrapped_func.__func__.calls = CallHistory([], [])
+            wrapped_func.__func__.calls.args.append(args)
+            wrapped_func.__func__.calls.kwargs.append(kwargs)
+        else:
+            # For standalone functions, attach `calls` directly to the function
+            if not hasattr(wrapped_func, 'calls'):
+                wrapped_func.calls = CallHistory([], [])
+            wrapped_func.calls.args.append(args)
+            wrapped_func.calls.kwargs.append(kwargs)
+        
+        # Call the original wrapped function
+        return wrapped_func(*args, **kwargs)
+
+    return wrapper(wrapped) if wrapped else wrapper
