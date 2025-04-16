@@ -253,9 +253,19 @@ class Poppy:
 
         return PoolHandler(self, pool, **kwargs)
 
-    def config_dict(self) -> dict:
-        """Return a dictionary with the configuration of the Poppy object."""
-        return {
+    def config_dict(self, include_sampler_config: bool = True, **kwargs) -> dict:
+        """Return a dictionary with the configuration of the Poppy object.
+        
+        Parameters
+        ----------
+        include_sampler_config : bool
+            Whether to include the configuration of the sampler. Default is
+            True.
+        kwargs : dict
+            Additional keyword arguments to pass to the :py:meth:`config_dict`
+            method of the sampler.
+        """
+        config = {
             # "log_likelihood": self.log_likelihood,
             # "log_prior": self.log_prior,
             "dims": self.dims,
@@ -271,13 +281,27 @@ class Poppy:
             "flow_kwargs": self.flow_kwargs,
             "eps": self.eps,
         }
+        if include_sampler_config:
+            config["sampler_config"] = self.sampler.config_dict(**kwargs)
+        return config
     
-    def save_config(self, h5_file: h5py.File, path="poppy_config") -> None:
-        """Save the configuration to an HDF5 file."""
+    def save_config(self, h5_file: h5py.File, path="poppy_config", **kwargs) -> None:
+        """Save the configuration to an HDF5 file.
+        
+        Parameters
+        ----------
+        h5_file : h5py.File
+            The HDF5 file to save the configuration to.
+        path : str
+            The path in the HDF5 file to save the configuration to.
+        kwargs : dict
+            Additional keyword arguments to pass to the :py:meth:`config_dict`
+            method.
+        """
         recursively_save_to_h5_file(
             h5_file,
             path,
-            self.config_dict(),
+            self.config_dict(**kwargs),
         )
 
     def save_config_to_json(self, filename: str) -> None:
