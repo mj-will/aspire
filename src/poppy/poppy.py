@@ -157,6 +157,11 @@ class Poppy:
         """
         if sampler_type == "importance":
             from .samplers.importance import ImportanceSampler as SamplerClass
+
+            if self.periodic_parameters:
+                raise ValueError(
+                    "Importance sampling does not support periodic parameters."
+                )
         elif sampler_type == "emcee":
             from .samplers.mcmc import Emcee as SamplerClass
         elif sampler_type == "smc":
