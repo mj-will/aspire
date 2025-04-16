@@ -53,9 +53,10 @@ class PoolHandler:
         The pool to use for parallel computation.
     """
 
-    def __init__(self, poppy_instance: Poppy, pool: Pool):
+    def __init__(self, poppy_instance: Poppy, pool: Pool, close_pool: bool = True):
         self.poppy_instance = poppy_instance
         self.pool = pool
+        self.close_pool = close_pool
 
     @property
     def poppy_instance(self):
@@ -72,17 +73,22 @@ class PoolHandler:
         self._poppy_instance = value
 
     def __enter__(self):
-        logger.debug("Updating map function in log-likelihood method")
         self.original_log_likelihood = self.poppy_instance.log_likelihood
-        self.poppy_instance.log_likelihood = partial(
-            self.original_log_likelihood, map_fn=self.pool.map
-        )
+        if self.pool is not None:
+            logger.debug("Updating map function in log-likelihood method")
+            self.poppy_instance.log_likelihood = partial(
+                self.original_log_likelihood, map_fn=self.pool.map
+            )
         return self.pool
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.poppy_instance.log_likelihood = self.original_log_likelihood
-        self.pool.close()
-        self.pool.join()
+        if self.close_pool:
+            logger.debug("Closing pool")
+            self.pool.close()
+            self.pool.join()
+        else:
+            logger.debug("Not closing pool")
 
 
 def logit(x: Array, eps: float | None = None) -> tuple[Array, Array]:
