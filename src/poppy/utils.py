@@ -148,15 +148,22 @@ def logsumexp(x: Array, axis: int | None = None) -> Array:
     return c + xp.log(xp.sum(xp.exp(x - c), axis=axis))
 
 
-def to_numpy(x: Array) -> np.ndarray:
+def to_numpy(x: Array, **kwargs) -> np.ndarray:
     """Convert an array to a numpy array.
 
     This automatically moves the device to the CPU.
+
+    Parameters
+    ----------
+    x : Array
+        The array to convert.
+    kwargs : dict
+        Additional keyword arguments to pass to numpy.asarray.
     """
     try:
-        return np.asarray(to_device(x, "cpu"))
+        return np.asarray(to_device(x, "cpu"), **kwargs)
     except ValueError:
-        return np.asarray(x)
+        return np.asarray(x, **kwargs)
 
 
 def effective_sample_size(log_w: Array) -> float:
