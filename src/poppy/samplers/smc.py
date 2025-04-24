@@ -41,14 +41,16 @@ class SMCSamples(BaseSamples):
         log_evidence_ratio = logsumexp(log_w) - self.xp.log(len(self.x))
         return log_w + log_evidence_ratio
 
-    def resample(self, beta) -> "SMCSamples":
+    def resample(self, beta, n_samples: int | None = None) -> "SMCSamples":
         if beta == self.beta:
             logger.warning("Resampling with the same beta value")
             return self
+        if n_samples is None:
+            n_samples = len(self.x)
         log_w = self.log_weights(beta)
         w = self.xp.exp(log_w - logsumexp(log_w))
         idx = np.random.choice(
-            len(self.x), size=len(self.x), replace=True, p=w
+            len(self.x), size=n_samples, replace=True, p=w
         )
         return self.__class__(
             x=self.x[idx],
@@ -170,6 +172,7 @@ class EmceeSMC(SMCSampler):
         adaptive: bool = False,
         target_efficiency: float = 0.5,
         emcee_kwargs: dict | None = None,
+        n_final_samples: int | None = None,
     ):
         self.emcee_kwargs = emcee_kwargs or {}
         self.emcee_kwargs.setdefault("nsteps", 5 * self.dims )
@@ -240,7 +243,16 @@ class EmceeSMC(SMCSampler):
                 f"it {iterations} - Log evidence ratio: {log_evidence_ratio}"
             )
 
-            samples = samples.resample(beta)
+            if beta == 1.0:
+                if n_final_samples is None:
+                    n_final_samples = n_samples
+                logger.info(
+                    f"Final number of samples: {n_final_samples}"
+                )
+                samples = samples.resample(beta, n_samples=n_final_samples)
+            else:
+                samples = samples.resample(beta)
+
             samples = self.mutate(samples, beta)
             if beta == 1.0:
                 break
