@@ -33,7 +33,7 @@ class DataTransform:
                 "Must specify prior bounds to use periodic parameters."
             )
         self.parameters = parameters
-        self.periodic_parameters = periodic_parameters
+        self.periodic_parameters = periodic_parameters or []
         self.bounded_to_unbounded = bounded_to_unbounded
         self.bounded_transform = bounded_transform
 
