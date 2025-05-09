@@ -231,7 +231,12 @@ def recursively_save_to_h5_file(h5_file, path, dictionary):
         if isinstance(value, dict):
             recursively_save_to_h5_file(h5_file, f"{path}/{key}", value)
         else:
-            h5_file.create_dataset(f"{path}/{key}", data=encode_for_hdf5(value))
+            try:
+                h5_file.create_dataset(f"{path}/{key}", data=encode_for_hdf5(value))
+            except TypeError as error:
+                raise RuntimeError(
+                    f"Cannot save key {key} with value {value} to HDF5 file."
+                ) from error
 
 
 def get_package_version(package_name: str) -> str:
