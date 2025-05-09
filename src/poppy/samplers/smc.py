@@ -265,13 +265,13 @@ class EmceeSMC(SMCSampler):
         n_steps: int = 5,
         adaptive: bool = False,
         target_efficiency: float = 0.5,
-        sampler_kwargs: dict | None = None,
+        emcee_kwargs: dict | None = None,
         n_final_samples: int | None = None,
     ):
-        self.sampler_kwargs = sampler_kwargs or {}
-        self.sampler_kwargs.setdefault("nsteps", 5 * self.dims )
-        self.sampler_kwargs.setdefault("progress", True)
-        self.emcee_moves = self.sampler_kwargs.pop("moves", None)
+        self.emcee_kwargs = emcee_kwargs or {}
+        self.emcee_kwargs.setdefault("nsteps", 5 * self.dims )
+        self.emcee_kwargs.setdefault("progress", True)
+        self.emcee_moves = self.emcee_kwargs.pop("moves", None)
         return super().sample(
             n_samples,
             n_steps=n_steps,
@@ -290,10 +290,10 @@ class EmceeSMC(SMCSampler):
             vectorize=True,
             moves=self.emcee_moves,
         )
-        sampler.run_mcmc(to_numpy(particles.x), **self.sampler_kwargs)
+        sampler.run_mcmc(to_numpy(particles.x), **self.emcee_kwargs)
         self.history.mcmc_acceptance.append(np.mean(sampler.acceptance_fraction))
         self.history.mcmc_autocorr.append(
-            sampler.get_autocorr_time(quiet=True, discard=int(0.2 * self.sampler_kwargs["nsteps"]))
+            sampler.get_autocorr_time(quiet=True, discard=int(0.2 * self.emcee_kwargs["nsteps"]))
         )
         x = sampler.get_chain(flat=False)[-1, ...]
         samples = SMCSamples(x, xp=self.xp, beta=beta)
@@ -323,10 +323,10 @@ class EmceePSMC(PreconditionedSMC, EmceeSMC):
             moves=self.emcee_moves,
         )
         z = to_numpy(self.pflow.forward(particles.x)[0])
-        sampler.run_mcmc(z, **self.sampler_kwargs)
+        sampler.run_mcmc(z, **self.emcee_kwargs)
         self.history.mcmc_acceptance.append(np.mean(sampler.acceptance_fraction))
         self.history.mcmc_autocorr.append(
-            sampler.get_autocorr_time(quiet=True, discard=int(0.2 * self.sampler_kwargs["nsteps"]))
+            sampler.get_autocorr_time(quiet=True, discard=int(0.2 * self.emcee_kwargs["nsteps"]))
         )
         z = sampler.get_chain(flat=False)[-1, ...]
         x, _ = self.pflow.inverse(z)
@@ -356,13 +356,13 @@ class MiniPCNSMC(SMCSampler):
         adaptive: bool = False,
         target_efficiency: float = 0.5,
         n_final_samples: int | None = None,
-        sampler_kwargs: dict | None = None,
+        minipcn_kwargs: dict | None = None,
         rng: np.random.Generator | None = None,
     ):
         
-        self.sampler_kwargs = sampler_kwargs or {}
-        self.sampler_kwargs.setdefault("n_steps", 5 * self.dims)
-        self.sampler_kwargs.setdefault("target_acceptance_rate", 0.234)
+        self.minipcn_kwargs = minipcn_kwargs or {}
+        self.minipcn_kwargs.setdefault("n_steps", 5 * self.dims)
+        self.minipcn_kwargs.setdefault("target_acceptance_rate", 0.234)
         self.rng = rng or np.random.default_rng()
         return super().sample(
             n_samples,
@@ -383,11 +383,11 @@ class MiniPCNSMC(SMCSampler):
             step_fn=TPCNStep(self.dims, rng=self.rng),
             rng=self.rng,
             dims=self.dims,
-            target_acceptance_rate=self.sampler_kwargs["target_acceptance_rate"],
+            target_acceptance_rate=self.minipcn_kwargs["target_acceptance_rate"],
         )
         chain, history = sampler.sample(
             to_numpy(particles.x),
-            n_steps=self.sampler_kwargs["n_steps"],
+            n_steps=self.minipcn_kwargs["n_steps"],
         )
         x = chain[-1]
 
