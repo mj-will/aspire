@@ -72,7 +72,7 @@ class Emcee(MCMCSampler):
         return samples_mcmc
     
 
-class MiniCrank(MCMCSampler):
+class MiniPCN(MCMCSampler):
 
     def log_prob(self, z):
         x, log_abs_det_jacobian = self.flow.inverse(z)
@@ -97,8 +97,8 @@ class MiniCrank(MCMCSampler):
         burnin=0,
         last_step_only=False,
     ):
-        from minicrank import Sampler
-        from minicrank.step import TPCNStep
+        from minipcn import Sampler
+        from minipcn.step import TPCNStep
 
         rng = rng or np.random.default_rng()
         x_init = rng.standard_normal((n_samples, self.dims))

@@ -343,8 +343,8 @@ class EmceePSMC(PreconditionedSMC, EmceeSMC):
         return samples
 
 
-class MiniCrankSMC(SMCSampler):
-    """MiniCrank SMC sampler."""
+class MiniPCNSMC(SMCSampler):
+    """MiniPCN SMC sampler."""
 
     rng = None
 
@@ -373,8 +373,8 @@ class MiniCrankSMC(SMCSampler):
         )
 
     def mutate(self, particles, beta):
-        from minicrank import Sampler
-        from minicrank.step import TPCNStep
+        from minipcn import Sampler
+        from minipcn.step import TPCNStep
 
         log_prob_fn = partial(self.log_prob, beta=beta)
 
