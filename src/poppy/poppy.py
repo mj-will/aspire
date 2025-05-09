@@ -192,6 +192,10 @@ class Poppy:
             from .samplers.smc import EmceeSMC as SamplerClass
         elif sampler_type == "psmc":
             from .samplers.smc import EmceePSMC as SamplerClass
+        elif sampler_type == "minicrank":
+            from .samplers.mcmc import MiniCrank as SamplerClass
+        elif sampler_type == "minicrank_smc":
+            from .samplers.smc import MiniCrankSMC as SamplerClass
         else:
             raise ValueError
 
