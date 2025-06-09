@@ -1,3 +1,4 @@
+import logging
 import torch
 import tqdm
 import zuko
@@ -7,6 +8,7 @@ from array_api_compat import torch as torch_api
 from ...history import FlowHistory
 from ..base import Flow
 
+logger = logging.getLogger(__name__)
 
 class BaseTorchFlow(Flow):
     _flow = None
@@ -59,7 +61,13 @@ class ZukoFlow(BaseTorchFlow):
             seed=seed,
         )
         FlowClass = getattr(zuko.flows, flow_class)
+        
+        # Ints are some times passed as strings, so we convert them
+        if hidden_features := kwargs.pop("hidden_features", None):
+            kwargs["hidden_features"] = list(map(int, hidden_features))
+
         self.flow = FlowClass(self.dims, 0, **kwargs)
+        logger.info(f"Initialized normalizing flow: \n {self.flow}\n")
 
     def loss_fn(self, x):
         return -self.flow().log_prob(x).mean()
@@ -92,6 +100,11 @@ class ZukoFlow(BaseTorchFlow):
             x_prime[: -int(validation_fraction * n)],
             dtype=torch.get_default_dtype(),
             device=self.device,
+        )
+
+        logger.info(
+            f"Training on {x_train.shape[0]} samples, "
+            f"validating on {x_prime.shape[0] - x_train.shape[0]} samples."
         )
 
         if torch.isnan(x_train).any():
