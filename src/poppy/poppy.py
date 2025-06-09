@@ -97,6 +97,14 @@ class Poppy:
     def sampler(self):
         """The sampler object."""
         return self._sampler
+    
+    @property
+    def n_likelihood_evaluations(self):
+        """The number of likelihood evaluations."""
+        if hasattr(self, "_sampler"):
+            return self._sampler.n_likelihood_evaluations
+        else:
+            return None
 
     def convert_to_samples(
         self,
@@ -137,6 +145,11 @@ class Poppy:
             import array_api_compat.torch as xp
         elif self.flow_backend == "flowjax":
             import jax.numpy as xp
+        else:
+            raise ValueError(
+                f"Unsupported flow backend: {self.flow_backend}. "
+                "Supported backends are 'zuko' and 'flowjax'."
+            )
         data_transform = DataTransform(
             parameters=self.parameters,
             prior_bounds=self.prior_bounds,
