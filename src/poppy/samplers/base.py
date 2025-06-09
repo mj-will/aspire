@@ -38,16 +38,25 @@ class Sampler:
         parameters: list[str] | None = None,
     ):
         self.flow = flow
-        self.log_likelihood = log_likelihood
+        self._log_likelihood = log_likelihood
         self.log_prior = log_prior
         self.dims = dims
         self.xp = xp
         self.parameters = parameters
         self.history = None
+        self.n_likelihood_evaluations = 0
 
     @track_calls
     def sample(self, n_samples: int) -> Samples:
         raise NotImplementedError
+    
+    def log_likelihood(self, samples: Samples) -> Samples:
+        """Computes the log likelihood of the samples.
+        
+        Also tracks the number of likelihood evaluations.
+        """
+        self.n_likelihood_evaluations += len(samples)
+        return self._log_likelihood(samples)
     
     def config_dict(self, include_sample_calls: bool = True) -> dict:
         """
