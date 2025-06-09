@@ -11,8 +11,6 @@ from .utils import recursively_save_to_h5_file
 class History:
     """Base class for storing history of a sampler."""
 
-    pass
-
     def save(self, h5_file, path="history"):
         """Save the history to an HDF5 file."""
         dictionary = copy.deepcopy(self.__dict__)
