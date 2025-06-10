@@ -67,10 +67,10 @@ class PoolHandler:
         close_pool: bool = True,
         parallelize_prior: bool = False,
     ):
+        self.parallelize_prior = parallelize_prior
         self.poppy_instance = poppy_instance
         self.pool = pool
         self.close_pool = close_pool
-        self.parallelize_prior = parallelize_prior
 
     @property
     def poppy_instance(self):
