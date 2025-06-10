@@ -332,3 +332,15 @@ class Poppy:
 
         with open(filename, "w") as f:
             json.dump(self.config_dict(), f, indent=4)
+
+    def sample_flow(self, n_samples: int = 1, xp=None) -> Samples:
+        """Sample from the flow directly.
+
+        Includes the data transform, but does not compute
+        log likelihood or log prior.
+        """
+        if self.flow is None:
+            self.init_flow()
+        x, log_q = self.flow.sample_and_log_prob(n_samples)
+        samples = Samples(x=x, log_q=log_q, xp=xp, parameters=self.parameters)
+        return samples
