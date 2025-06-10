@@ -15,8 +15,8 @@ class DataTransform:
     def __init__(
         self,
         parameters: list[int],
-        periodic_parameters: list[int],
-        prior_bounds: list[tuple[float, float]],
+        periodic_parameters: list[int] = None,
+        prior_bounds: list[tuple[float, float]] = None,
         bounded_to_unbounded: bool = True,
         bounded_transform: str = "probit",
         device=None,
@@ -134,14 +134,15 @@ class DataTransform:
 
     def forward(self, x):
         x = copy.copy(x)
+        x = self.xp.atleast_2d(x)
         log_abs_det_jacobian = self.xp.zeros(len(x), device=self.device)
         if self.periodic_parameters:
-            y, log_j_periodic = self._periodic_transform.forward(x[:, self.periodic_mask])
+            y, log_j_periodic = self._periodic_transform.forward(x[..., self.periodic_mask])
             x = update_at_indices(x, (slice(None), self.periodic_mask), y)
             log_abs_det_jacobian += log_j_periodic
 
         if self.bounded_parameters:
-            y, log_j_bounded = self._bounded_transform.forward(x[:, self.bounded_mask])
+            y, log_j_bounded = self._bounded_transform.forward(x[..., self.bounded_mask])
             x = update_at_indices(x, (slice(None), self.bounded_mask), y)
             log_abs_det_jacobian += log_j_bounded
 
@@ -151,17 +152,18 @@ class DataTransform:
 
     def inverse(self, x):
         x = copy.copy(x)
+        x = self.xp.atleast_2d(x)
         log_abs_det_jacobian = self.xp.zeros(len(x), device=self.device)
         x, log_j_affine = self.affine_transform.inverse(x)
         log_abs_det_jacobian += log_j_affine
 
         if self.bounded_parameters:
-            y, log_j_bounded = self._bounded_transform.inverse(x[:, self.bounded_mask])
+            y, log_j_bounded = self._bounded_transform.inverse(x[..., self.bounded_mask])
             x = update_at_indices(x, (slice(None), self.bounded_mask), y)
             log_abs_det_jacobian += log_j_bounded
 
         if self.periodic_parameters:
-            y, log_j_periodic = self._periodic_transform.inverse(x[:, self.periodic_mask])
+            y, log_j_periodic = self._periodic_transform.inverse(x[..., self.periodic_mask])
             x = update_at_indices(x, (slice(None), self.periodic_mask), y)
             log_abs_det_jacobian += log_j_periodic
 
