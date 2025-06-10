@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import inspect
 import logging
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
-import h5py
-import wrapt
 
 import array_api_compat.numpy as np
+import h5py
+import wrapt
 from array_api_compat import array_namespace, is_torch_namespace, to_device
 
 if TYPE_CHECKING:
@@ -48,15 +48,29 @@ class PoolHandler:
     ----------
     poppy_instance : Poppy
         The Poppy instance to modify. The log_likelihood method of this
-        instance must accept a 'map_fn' keyword argument.
+        instance must accept a :code:`map_fn` keyword argument.
     pool : multiprocessing.Pool
         The pool to use for parallel computation.
+    close_pool : bool, optional
+        Whether to close the pool when exiting the context manager.
+        Defaults to True.
+    parallelize_prior : bool, optional
+        Whether to parallelize the log_prior method as well. Defaults to False.
+        If True, the log_prior method of the Poppy instance must also
+        accept a :code:`map_fn` keyword argument.
     """
 
-    def __init__(self, poppy_instance: Poppy, pool: Pool, close_pool: bool = True):
+    def __init__(
+        self,
+        poppy_instance: Poppy,
+        pool: Pool,
+        close_pool: bool = True,
+        parallelize_prior: bool = False,
+    ):
         self.poppy_instance = poppy_instance
         self.pool = pool
         self.close_pool = close_pool
+        self.parallelize_prior = parallelize_prior
 
     @property
     def poppy_instance(self):
@@ -70,19 +84,32 @@ class PoolHandler:
                 "The log_likelihood method of the Poppy instance must accept a"
                 " 'map_fn' keyword argument."
             )
+        signature = inspect.signature(value.log_prior)
+        if "map_fn" not in signature.parameters and self.parallelize_prior:
+            raise ValueError(
+                "The log_prior method of the Poppy instance must accept a"
+                " 'map_fn' keyword argument if parallelize_prior is True."
+            )
         self._poppy_instance = value
 
     def __enter__(self):
         self.original_log_likelihood = self.poppy_instance.log_likelihood
+        self.original_log_prior = self.poppy_instance.log_prior
         if self.pool is not None:
             logger.debug("Updating map function in log-likelihood method")
             self.poppy_instance.log_likelihood = partial(
                 self.original_log_likelihood, map_fn=self.pool.map
             )
+            if self.parallelize_prior:
+                logger.debug("Updating map function in log-prior method")
+                self.poppy_instance.log_prior = partial(
+                    self.original_log_prior, map_fn=self.pool.map
+                )
         return self.pool
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.poppy_instance.log_likelihood = self.original_log_likelihood
+        self.poppy_instance.log_prior = self.original_log_prior
         if self.close_pool:
             logger.debug("Closing pool")
             self.pool.close()
@@ -202,7 +229,7 @@ def disable_gradients(xp, inference: bool = True):
 
 def encode_for_hdf5(value: Any) -> Any:
     """Encode a value for storage in an HDF5 file.
-    
+
     Special cases:
     - None is replaced with "__none__"
     - Empty dictionaries are replaced with "__empty_dict__"
@@ -232,7 +259,9 @@ def recursively_save_to_h5_file(h5_file, path, dictionary):
             recursively_save_to_h5_file(h5_file, f"{path}/{key}", value)
         else:
             try:
-                h5_file.create_dataset(f"{path}/{key}", data=encode_for_hdf5(value))
+                h5_file.create_dataset(
+                    f"{path}/{key}", data=encode_for_hdf5(value)
+                )
             except TypeError as error:
                 raise RuntimeError(
                     f"Cannot save key {key} with value {value} to HDF5 file."
@@ -261,12 +290,14 @@ def get_package_version(package_name: str) -> str:
 
 class PoppyFile(h5py.File):
     """A subclass of h5py.File that adds metadata to the file."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._set_poppy_metadata()
 
     def _set_poppy_metadata(self):
         from . import __version__ as poppy_version
+
         self.attrs["poppy_version"] = poppy_version
 
 
@@ -284,7 +315,7 @@ def update_at_indices(x: Array, slc: Array, y: Array) -> Array:
         The indices to update.
     y : Array
         The values to set at the indices.
-    
+
     Returns
     -------
     Array
@@ -308,33 +339,35 @@ class CallHistory:
     kwargs : list[dict]
         The keyword arguments of each call.
     """
+
     args: list[tuple]
     kwargs: list[dict]
 
 
 def track_calls(wrapped=None):
     """Decorator to track calls to a function.
-    
+
     The decorator adds a :code:`calls` attribute to the wrapped function,
     which is a :py:class:`CallHistory` object that stores the arguments and
     keyword arguments of each call.
     """
+
     @wrapt.decorator
     def wrapper(wrapped_func, instance, args, kwargs):
         # If instance is provided, we're dealing with a method.
         if instance:
             # Attach `calls` attribute to the method's `__func__`, which is the original function
-            if not hasattr(wrapped_func.__func__, 'calls'):
+            if not hasattr(wrapped_func.__func__, "calls"):
                 wrapped_func.__func__.calls = CallHistory([], [])
             wrapped_func.__func__.calls.args.append(args)
             wrapped_func.__func__.calls.kwargs.append(kwargs)
         else:
             # For standalone functions, attach `calls` directly to the function
-            if not hasattr(wrapped_func, 'calls'):
+            if not hasattr(wrapped_func, "calls"):
                 wrapped_func.calls = CallHistory([], [])
             wrapped_func.calls.args.append(args)
             wrapped_func.calls.kwargs.append(kwargs)
-        
+
         # Call the original wrapped function
         return wrapped_func(*args, **kwargs)
 
