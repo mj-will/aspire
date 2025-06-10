@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Callable
 from functools import partial
 
-import emcee
 import numpy as np
 from array_api_compat.common._typing import Array
 
@@ -281,6 +280,8 @@ class EmceeSMC(SMCSampler):
         )
 
     def mutate(self, particles, beta):
+        import emcee
+
         logger.info("Mutating particles")
         sampler = emcee.EnsembleSampler(
             len(particles.x),
@@ -312,6 +313,8 @@ class EmceeSMC(SMCSampler):
 class EmceePSMC(PreconditionedSMC, EmceeSMC):
 
     def mutate(self, particles, beta):
+        import emcee
+
         self.train_preconditioner(particles)
         logger.info("Mutating particles")
         sampler = emcee.EnsembleSampler(
