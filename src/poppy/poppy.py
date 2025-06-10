@@ -1,12 +1,13 @@
 import logging
 import multiprocessing as mp
 from typing import Callable
+
 import h5py
 
 from .flows import get_flow_wrapper
+from .history import History
 from .samples import Samples
 from .transforms import DataTransform
-from .history import History
 from .utils import recursively_save_to_h5_file
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ class Poppy:
     def sampler(self):
         """The sampler object."""
         return self._sampler
-    
+
     @property
     def n_likelihood_evaluations(self):
         """The number of likelihood evaluations."""
@@ -186,7 +187,7 @@ class Poppy:
 
     def init_sampler(self, sampler_type: str, **kwargs) -> Callable:
         """Initialize the sampler for posterior sampling.
-        
+
         Parameters
         ----------
         sampler_type : str
@@ -270,9 +271,11 @@ class Poppy:
 
         return PoolHandler(self, pool, **kwargs)
 
-    def config_dict(self, include_sampler_config: bool = True, **kwargs) -> dict:
+    def config_dict(
+        self, include_sampler_config: bool = True, **kwargs
+    ) -> dict:
         """Return a dictionary with the configuration of the Poppy object.
-        
+
         Parameters
         ----------
         include_sampler_config : bool
@@ -301,10 +304,12 @@ class Poppy:
         if include_sampler_config:
             config["sampler_config"] = self.sampler.config_dict(**kwargs)
         return config
-    
-    def save_config(self, h5_file: h5py.File, path="poppy_config", **kwargs) -> None:
+
+    def save_config(
+        self, h5_file: h5py.File, path="poppy_config", **kwargs
+    ) -> None:
         """Save the configuration to an HDF5 file.
-        
+
         Parameters
         ----------
         h5_file : h5py.File
