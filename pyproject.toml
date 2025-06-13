@@ -34,6 +34,9 @@ torch = [
     "torch",
     "zuko",
 ]
+minipcn = [
+    "minipcn",
+]
 test = [
     "pytest",
     "pytest-requires",
