@@ -179,7 +179,7 @@ class ZukoFlow(BaseTorchFlow):
         return xp.asarray(x)
 
     def log_prob(self, x, xp=torch_api):
-        x = torch.tensor(
+        x = torch.as_tensor(
             x, dtype=torch.get_default_dtype(), device=self.device
         )
         x_prime, log_abs_det_jacobian = self.rescale(x)
@@ -188,7 +188,7 @@ class ZukoFlow(BaseTorchFlow):
         )
 
     def forward(self, x, xp=torch_api):
-        x = torch.tensor(
+        x = torch.as_tensor(
             x, dtype=torch.get_default_dtype(), device=self.device
         )
         x_prime, log_j_rescale = self.rescale(x)
@@ -196,7 +196,7 @@ class ZukoFlow(BaseTorchFlow):
         return xp.asarray(z), xp.asarray(log_abs_det_jacobian + log_j_rescale)
 
     def inverse(self, z, xp=torch_api):
-        z = torch.tensor(
+        z = torch.as_tensor(
             z, dtype=torch.get_default_dtype(), device=self.device
         )
         with torch.no_grad():

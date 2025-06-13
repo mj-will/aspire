@@ -12,6 +12,9 @@ class MiniPCNSMC(SMCSampler):
 
     rng = None
 
+    def log_prob(self, x, beta=None):
+        return to_numpy(super().log_prob(x, beta))
+
     @track_calls
     def sample(
         self,

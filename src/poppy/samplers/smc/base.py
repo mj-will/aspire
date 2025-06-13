@@ -7,7 +7,7 @@ from ...flows.base import Flow
 from ...history import SMCHistory
 from ...samples import SMCSamples
 from ...utils import effective_sample_size, to_numpy, track_calls
-from .base import Sampler
+from ..base import Sampler
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ class SMCSampler(Sampler):
         samples.log_q = samples.array_to_namespace(log_q)
         samples.log_prior = self.log_prior(samples)
         samples.log_likelihood = self.log_likelihood(samples)
-        log_prob = to_numpy(samples.log_p_t(beta=beta)).flatten()
+        log_prob = samples.log_p_t(beta=beta).flatten()
         log_prob[self.xp.isnan(log_prob)] = -self.xp.inf
         return log_prob
 
