@@ -18,7 +18,7 @@ class FlowJax(Flow):
         device = kwargs.pop("device", None)
         if device is not None:
             logger.warning("The device argument is not used in FlowJax. ")
-        super().__init__(dims, device=device)
+        super().__init__(dims, device=device, data_transform=data_transform)
         if key is None:
             key = jrandom.key(0)
             logger.warning(
@@ -35,7 +35,6 @@ class FlowJax(Flow):
             dims=self.dims,
             **kwargs,
         )
-        self.data_transform = data_transform
 
     def fit(self, x, **kwargs):
         from ...history import FlowHistory
