@@ -193,6 +193,36 @@ def to_numpy(x: Array, **kwargs) -> np.ndarray:
         return np.asarray(x, **kwargs)
 
 
+def copy_array(x, xp: Any = None) -> Array:
+    """Copy an array based on the array API being used.
+
+    This uses the most appropriate method to copy the array
+    depending on the array API.
+
+    Parameters
+    ----------
+    x : Array
+        The array to copy.
+    xp : Any
+        The array API to use for the copy.
+
+    Returns
+    -------
+    Array
+        The copied array.
+    """
+    if xp is None:
+        xp = array_namespace(x)
+    if is_torch_namespace(xp):
+        return xp.clone(x)
+    else:
+        try:
+            return xp.copy(x)
+        except AttributeError:
+            # Fallback for array APIs that do not have a copy method
+            return xp.array(x, copy=True)
+
+
 def effective_sample_size(log_w: Array) -> float:
     xp = array_namespace(log_w)
     return xp.exp(xp.asarray(logsumexp(log_w) * 2 - logsumexp(log_w * 2)))

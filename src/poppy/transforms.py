@@ -1,4 +1,3 @@
-import copy
 import logging
 import math
 from typing import Any
@@ -6,7 +5,7 @@ from typing import Any
 from array_api_compat import is_torch_namespace
 from scipy.special import erf, erfinv
 
-from .utils import logit, sigmoid, update_at_indices
+from .utils import copy_array, logit, sigmoid, update_at_indices
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +113,7 @@ class DataTransform:
         self.affine_transform = AffineTransform(xp=self.xp)
 
     def fit(self, x):
-        x = copy.copy(x)
+        x = copy_array(x, xp=self.xp)
         if self.periodic_parameters:
             logger.debug(
                 f"Fitting periodic transform to parameters: {self.periodic_parameters}"
@@ -136,7 +135,7 @@ class DataTransform:
         return self.affine_transform.fit(x)
 
     def forward(self, x):
-        x = copy.copy(x)
+        x = copy_array(x, xp=self.xp)
         x = self.xp.atleast_2d(x)
         log_abs_det_jacobian = self.xp.zeros(len(x), device=self.device)
         if self.periodic_parameters:
@@ -158,7 +157,7 @@ class DataTransform:
         return x, log_abs_det_jacobian
 
     def inverse(self, x):
-        x = copy.copy(x)
+        x = copy_array(x, xp=self.xp)
         x = self.xp.atleast_2d(x)
         log_abs_det_jacobian = self.xp.zeros(len(x), device=self.device)
         x, log_j_affine = self.affine_transform.inverse(x)
