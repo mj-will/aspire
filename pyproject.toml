@@ -3,7 +3,7 @@ requires = ["setuptools>=45", "setuptools-scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bayesian-poppy"
+name = "poppy-inference"
 authors = [
     {name = "Michael J. Williams", email = "michaeljw1@googlemail.com"},
 ]
@@ -34,7 +34,11 @@ torch = [
 ]
 test = [
     "pytest",
+    "pytest-requires",
 ]
+
+[project.urls]
+Homepage = "https://github.com/mj-will/poppy"
 
 [tool.setuptools_scm]
 
