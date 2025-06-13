@@ -2,6 +2,7 @@ import copy
 import math
 from dataclasses import dataclass, field
 from typing import Any, Callable
+import logging
 
 import numpy as np
 from array_api_compat import array_namespace, is_numpy_namespace, to_device, device as api_device, is_jax_array
@@ -9,6 +10,8 @@ from array_api_compat.common._typing import Array
 
 from .utils import logsumexp, to_numpy, recursively_save_to_h5_file
 
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class BaseSamples:
@@ -260,5 +263,70 @@ class Samples(BaseSamples):
             log_q=to_numpy(self.log_q) if self.log_q is not None else None,
             log_evidence=self.log_evidence if self.log_evidence is not None else None,
             log_evidence_error=self.log_evidence_error if self.log_evidence_error is not None else None,
+        )
+    
+@dataclass
+class SMCSamples(BaseSamples):
+    beta: float | None = None
+    log_evidence: float | None = None
+    """Temperature parameter for the current samples."""
+
+    def log_p_t(self, beta):
+        log_p_T = self.log_likelihood + self.log_prior
+        return (1 - beta) * self.log_q + beta * log_p_T
+
+    def unnormalized_log_weights(self, beta):
+        return (self.beta - beta) * self.log_q + (beta - self.beta) * (
+            self.log_likelihood + self.log_prior
+        )
+
+    def log_evidence_ratio(self, beta):
+        log_w = self.unnormalized_log_weights(beta)
+        return logsumexp(log_w) - self.xp.log(len(self.x))
+
+    def log_weights(self, beta) -> Array:
+        log_w = self.unnormalized_log_weights(beta)
+        if self.xp.isnan(log_w).any():
+            raise ValueError(f"Log weights contain NaN values for beta={beta}")
+        log_evidence_ratio = logsumexp(log_w) - self.xp.log(len(self.x))
+        return log_w + log_evidence_ratio
+
+    def resample(self, beta, n_samples: int | None = None) -> "SMCSamples":
+        if beta == self.beta:
+            logger.warning("Resampling with the same beta value")
+            return self
+        if n_samples is None:
+            n_samples = len(self.x)
+        log_w = self.log_weights(beta)
+        w = self.xp.exp(log_w - logsumexp(log_w))
+        idx = np.random.choice(
+            len(self.x), size=n_samples, replace=True, p=w
+        )
+        return self.__class__(
+            x=self.x[idx],
+            log_likelihood=self.log_likelihood[idx],
+            log_prior=self.log_prior[idx],
+            log_q=self.log_q[idx],
+            beta=beta,
+        )
+
+    def __str__(self):
+        out = super().__str__()
+        if self.log_evidence is not None:
+            out += (
+                f"Log evidence: {self.log_evidence:.2f}\n"
+            )
+        return out
+
+    def to_standard_samples(self):
+        """Convert the samples to standard samples."""
+        return Samples(
+            x=self.x,
+            log_likelihood=self.log_likelihood,
+            log_prior=self.log_prior,
+            xp=self.xp,
+            parameters=self.parameters,
+            log_evidence=self.log_evidence,
+            log_evidence_error=self.log_evidence_error,
         )
     
