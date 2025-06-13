@@ -1,0 +1,21 @@
+name: Lint
+
+on:
+  push:
+    branches: [ main, release* ]
+  pull_request:
+    branches: [ main, release* ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.11.x"
+          args: 'format --check'
