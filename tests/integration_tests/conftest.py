@@ -1,7 +1,14 @@
-import numpy as np
+import math
+from collections import namedtuple
+
 import pytest
 
 from poppy.samples import Samples
+
+SamplerConfig = namedtuple(
+    "SamplerConfig",
+    ["sampler", "sampler_kwargs"],
+)
 
 
 @pytest.fixture
@@ -73,12 +80,12 @@ def xp(samples_backend):
 
 
 @pytest.fixture
-def log_likelihood(likelihood_mean, likelihood_std):
-    xp = np
-
+def log_likelihood(likelihood_mean, likelihood_std, xp):
     def _log_likelihood(samples):
         x = xp.asarray(samples.x)
-        constant = xp.log(1 / (likelihood_std * xp.sqrt(2 * xp.pi)))
+        constant = xp.log(
+            xp.asarray(1 / (likelihood_std * math.sqrt(2 * math.pi)))
+        )
         return xp.sum(
             constant - (0.5 * ((x - likelihood_mean) / likelihood_std) ** 2),
             axis=-1,
@@ -88,13 +95,53 @@ def log_likelihood(likelihood_mean, likelihood_std):
 
 
 @pytest.fixture
-def log_prior(dims):
-    xp = np
-
+def log_prior(dims, xp):
     def _log_prior(samples):
         x = xp.asarray(samples.x)
-        constant = dims * xp.log(1 / 10)
+        constant = dims * xp.log(xp.asarray(1 / 10))
         val = xp.where((x >= -10) & (x <= 10), constant, -xp.inf)
         return xp.sum(val, axis=-1)
 
     return _log_prior
+
+
+@pytest.fixture(
+    params=["importance", "minipcn_smc", "emcee_smc", "emcee_psmc"]
+)
+def sampler_config(request):
+    if request.param == "importance":
+        return SamplerConfig(sampler="importance", sampler_kwargs={})
+    elif request.param == "minipcn_smc":
+        return SamplerConfig(
+            sampler="minipcn_smc",
+            sampler_kwargs={
+                "adaptive": True,
+                "minipcn_kwargs": {
+                    "n_steps": 10,
+                },
+            },
+        )
+    elif request.param == "emcee_smc":
+        return SamplerConfig(
+            sampler="emcee_smc",
+            sampler_kwargs={
+                "adaptive": True,
+                "emcee_kwargs": {
+                    "nsteps": 10,
+                    "progress": False,
+                },
+            },
+        )
+    elif request.param == "emcee_psmc":
+        return SamplerConfig(
+            sampler="emcee_psmc",
+            sampler_kwargs={
+                "adaptive": True,
+                "emcee_kwargs": {
+                    "nsteps": 10,
+                    "progress": False,
+                },
+            },
+        )
+    else:
+        raise ValueError(f"Unsupported sampler: {request.param}")

@@ -12,6 +12,7 @@ def test_integration_zuko(
     prior_bounds,
     bounded_to_unbounded,
     samples_backend,
+    sampler_config,
 ):
     if samples_backend == "jax":
         pytest.xfail(
@@ -29,7 +30,11 @@ def test_integration_zuko(
         flow_backend="zuko",
     )
     poppy.fit(samples, n_epochs=5)
-    poppy.sample_posterior(100)
+    poppy.sample_posterior(
+        n_samples=100,
+        sampler=sampler_config.sampler,
+        **sampler_config.sampler_kwargs,
+    )
 
 
 @pytest.mark.requires("flowjax")
