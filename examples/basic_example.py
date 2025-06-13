@@ -6,13 +6,12 @@ likelihood with a uniform prior.
 import math
 from pathlib import Path
 
-import numpy as np
 from scipy.stats import norm, uniform
 
 from poppy import Poppy
-from poppy.samples import Samples
-from poppy.utils import configure_logger, PoppyFile
 from poppy.plot import plot_comparison
+from poppy.samples import Samples
+from poppy.utils import PoppyFile, configure_logger
 
 # Configure the logger
 configure_logger("INFO")
@@ -23,6 +22,7 @@ outdir.mkdir(parents=True, exist_ok=True)
 # Number of dimensions
 dims = 4
 
+
 # Define the log likelihood and log prior
 def log_likelihood(samples: Samples):
     # The log likelihood must accept a Samples object
@@ -31,9 +31,7 @@ def log_likelihood(samples: Samples):
 
 
 def log_prior(samples: Samples):
-    return (
-        uniform(-10, 20).logpdf(samples.x).sum(axis=-1)
-    )
+    return uniform(-10, 20).logpdf(samples.x).sum(axis=-1)
 
 
 # True evidence is analytic for a Gaussian likelihood and uniform prior

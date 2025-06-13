@@ -16,6 +16,7 @@ class History:
         dictionary = copy.deepcopy(self.__dict__)
         recursively_save_to_h5_file(h5_file, path, dictionary)
 
+
 @dataclass
 class FlowHistory(History):
     training_loss: list[float] = field(default_factory=list)
@@ -88,7 +89,7 @@ class SMCHistory(History):
         ax.set_xlabel("Iteration")
         ax.set_ylabel("ESS target")
         return fig
-    
+
     def plot_mcmc_acceptance(self, ax=None) -> Figure | None:
         if ax is None:
             fig, ax = plt.subplots()
@@ -98,7 +99,7 @@ class SMCHistory(History):
         ax.set_xlabel("Iteration")
         ax.set_ylabel("MCMC Acceptance")
         return fig
-    
+
     def plot_mcmc_autocorr(self, ax=None) -> Figure | None:
         if ax is None:
             fig, ax = plt.subplots()
@@ -110,7 +111,6 @@ class SMCHistory(History):
         return fig
 
     def plot(self, fig: Figure | None = None) -> Figure:
-
         methods = [
             self.plot_beta,
             self.plot_log_norm_ratio,

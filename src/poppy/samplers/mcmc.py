@@ -70,10 +70,9 @@ class Emcee(MCMCSampler):
         )
 
         return samples_mcmc
-    
+
 
 class MiniPCN(MCMCSampler):
-
     def log_prob(self, z):
         x, log_abs_det_jacobian = self.flow.inverse(z)
         samples = Samples(x, xp=self.xp)
@@ -85,7 +84,7 @@ class MiniPCN(MCMCSampler):
             + samples.array_to_namespace(log_abs_det_jacobian)
         )
         return to_numpy(log_prob).flatten()
-    
+
     @track_calls
     def sample(
         self,
@@ -110,7 +109,7 @@ class MiniPCN(MCMCSampler):
             dims=self.dims,
             target_acceptance_rate=target_acceptance_rate,
         )
-        
+
         chain, history = self.sampler.sample(x_init, n_steps=n_steps)
 
         if last_step_only:
@@ -118,7 +117,7 @@ class MiniPCN(MCMCSampler):
         else:
             z = chain[burnin::thin].reshape(-1, self.dims)
 
-        x = self.flow.inverse(z)[0] 
+        x = self.flow.inverse(z)[0]
 
         samples_mcmc = Samples(x, xp=self.xp, parameters=self.parameters)
         samples_mcmc.log_prior = samples_mcmc.array_to_namespace(

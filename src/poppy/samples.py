@@ -1,25 +1,32 @@
 import copy
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any, Callable
-import logging
 
 import numpy as np
-from array_api_compat import array_namespace, is_numpy_namespace, to_device, device as api_device, is_jax_array
+from array_api_compat import (
+    array_namespace,
+    is_jax_array,
+    is_numpy_namespace,
+    to_device,
+)
+from array_api_compat import device as api_device
 from array_api_compat.common._typing import Array
 
-from .utils import logsumexp, to_numpy, recursively_save_to_h5_file
-
+from .utils import logsumexp, recursively_save_to_h5_file, to_numpy
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class BaseSamples:
     """Class for storing samples and corresponding weights.
-    
+
     If :code:`xp` is not specified, all inputs will be converted to match
     the array type of :code:`x`.
     """
+
     x: Array
     log_likelihood: Array | None = None
     log_prior: Array | None = None
@@ -51,8 +58,12 @@ class BaseSamples:
         return self.__class__(
             x=to_numpy(self.x),
             parameters=self.parameters,
-            log_likelihood=to_numpy(self.log_likelihood) if self.log_likelihood is not None else None,
-            log_prior=to_numpy(self.log_prior) if self.log_prior is not None else None,
+            log_likelihood=to_numpy(self.log_likelihood)
+            if self.log_likelihood is not None
+            else None,
+            log_prior=to_numpy(self.log_prior)
+            if self.log_prior is not None
+            else None,
             log_q=to_numpy(self.log_q) if self.log_q is not None else None,
         )
 
@@ -60,8 +71,12 @@ class BaseSamples:
         return self.__class__(
             x=xp.asarray(self.x),
             parameters=self.parameters,
-            log_likelihood=xp.asarray(self.log_likelihood) if self.log_likelihood is not None else None,
-            log_prior=xp.asarray(self.log_prior) if self.log_prior is not None else None,
+            log_likelihood=xp.asarray(self.log_likelihood)
+            if self.log_likelihood is not None
+            else None,
+            log_prior=xp.asarray(self.log_prior)
+            if self.log_prior is not None
+            else None,
             log_q=xp.asarray(self.log_q) if self.log_q is not None else None,
         )
 
@@ -111,7 +126,7 @@ class BaseSamples:
         """Save the samples to an HDF5 file.
 
         This converts the samples to numpy and then to a dictionary.
-        
+
         Parameters
         ----------
         h5_file : h5py.File
@@ -136,6 +151,7 @@ class Samples(BaseSamples):
     If :code:`xp` is not specified, all inputs will be converted to match
     the array type of :code:`x`.
     """
+
     log_w: Array = field(init=False)
     weights: Array = field(init=False)
     evidence: float = field(init=False)
@@ -196,7 +212,9 @@ class Samples(BaseSamples):
     def rejection_sample(self, rng=None):
         if rng is None:
             rng = np.random.default_rng()
-        log_u = self.xp.asarray(np.log(rng.uniform(size=len(self.x))), device=self.device)
+        log_u = self.xp.asarray(
+            np.log(rng.uniform(size=len(self.x))), device=self.device
+        )
         log_w = self.log_w - self.xp.max(self.log_w)
         accept = log_w > log_u
         return self.__class__(
@@ -226,16 +244,18 @@ class Samples(BaseSamples):
 
     def plot_corner(self, include_weights: bool = True, **kwargs):
         kwargs = copy.deepcopy(kwargs)
-        if include_weights and self.weights is not None and "weights" not in kwargs:
+        if (
+            include_weights
+            and self.weights is not None
+            and "weights" not in kwargs
+        ):
             kwargs["weights"] = to_numpy(self.scaled_weights)
         return super().plot_corner(**kwargs)
 
     def __str__(self):
         out = super().__str__()
         if self.log_evidence is not None:
-            out += (
-                f"Log evidence: {self.log_evidence:.2f} +/- {self.log_evidence_error:.2f}\n"
-            )
+            out += f"Log evidence: {self.log_evidence:.2f} +/- {self.log_evidence_error:.2f}\n"
         if self.log_w is not None:
             out += (
                 f"Effective sample size: {self.effective_sample_size:.1f}\n"
@@ -247,24 +267,41 @@ class Samples(BaseSamples):
         return self.__class__(
             x=xp.asarray(self.x),
             parameters=self.parameters,
-            log_likelihood=xp.asarray(self.log_likelihood) if self.log_likelihood is not None else None,
-            log_prior=xp.asarray(self.log_prior) if self.log_prior is not None else None,
+            log_likelihood=xp.asarray(self.log_likelihood)
+            if self.log_likelihood is not None
+            else None,
+            log_prior=xp.asarray(self.log_prior)
+            if self.log_prior is not None
+            else None,
             log_q=xp.asarray(self.log_q) if self.log_q is not None else None,
-            log_evidence=xp.asarray(self.log_evidence) if self.log_evidence is not None else None,
-            log_evidence_error=xp.asarray(self.log_evidence_error) if self.log_evidence_error is not None else None,
+            log_evidence=xp.asarray(self.log_evidence)
+            if self.log_evidence is not None
+            else None,
+            log_evidence_error=xp.asarray(self.log_evidence_error)
+            if self.log_evidence_error is not None
+            else None,
         )
-    
+
     def to_numpy(self):
         return self.__class__(
             x=to_numpy(self.x),
             parameters=self.parameters,
-            log_likelihood=to_numpy(self.log_likelihood) if self.log_likelihood is not None else None,
-            log_prior=to_numpy(self.log_prior) if self.log_prior is not None else None,
+            log_likelihood=to_numpy(self.log_likelihood)
+            if self.log_likelihood is not None
+            else None,
+            log_prior=to_numpy(self.log_prior)
+            if self.log_prior is not None
+            else None,
             log_q=to_numpy(self.log_q) if self.log_q is not None else None,
-            log_evidence=self.log_evidence if self.log_evidence is not None else None,
-            log_evidence_error=self.log_evidence_error if self.log_evidence_error is not None else None,
+            log_evidence=self.log_evidence
+            if self.log_evidence is not None
+            else None,
+            log_evidence_error=self.log_evidence_error
+            if self.log_evidence_error is not None
+            else None,
         )
-    
+
+
 @dataclass
 class SMCSamples(BaseSamples):
     beta: float | None = None
@@ -299,9 +336,7 @@ class SMCSamples(BaseSamples):
             n_samples = len(self.x)
         log_w = self.log_weights(beta)
         w = self.xp.exp(log_w - logsumexp(log_w))
-        idx = np.random.choice(
-            len(self.x), size=n_samples, replace=True, p=w
-        )
+        idx = np.random.choice(len(self.x), size=n_samples, replace=True, p=w)
         return self.__class__(
             x=self.x[idx],
             log_likelihood=self.log_likelihood[idx],
@@ -313,9 +348,7 @@ class SMCSamples(BaseSamples):
     def __str__(self):
         out = super().__str__()
         if self.log_evidence is not None:
-            out += (
-                f"Log evidence: {self.log_evidence:.2f}\n"
-            )
+            out += f"Log evidence: {self.log_evidence:.2f}\n"
         return out
 
     def to_standard_samples(self):
@@ -329,4 +362,3 @@ class SMCSamples(BaseSamples):
             log_evidence=self.log_evidence,
             log_evidence_error=self.log_evidence_error,
         )
-    

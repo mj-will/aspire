@@ -5,7 +5,7 @@ import numpy as np
 
 from ...flows.base import Flow
 from ...history import SMCHistory
-from ...samples import Samples, SMCSamples
+from ...samples import SMCSamples
 from ...utils import effective_sample_size, to_numpy, track_calls
 from .base import Sampler
 
@@ -102,9 +102,7 @@ class SMCSampler(Sampler):
             if beta == 1.0:
                 if n_final_samples is None:
                     n_final_samples = n_samples
-                logger.info(
-                    f"Final number of samples: {n_final_samples}"
-                )
+                logger.info(f"Final number of samples: {n_final_samples}")
                 samples = samples.resample(beta, n_samples=n_final_samples)
             else:
                 samples = samples.resample(beta)
@@ -116,11 +114,8 @@ class SMCSampler(Sampler):
         samples.log_evidence = samples.xp.sum(self.history.log_norm_ratio)
         samples.log_evidence_error = samples.xp.nan
         final_samples = samples.to_standard_samples()
-        logger.info(
-            f"Log evidence: {final_samples.log_evidence:.2f}"
-        )
+        logger.info(f"Log evidence: {final_samples.log_evidence:.2f}")
         return final_samples
-
 
     def mutate(self, particles):
         raise NotImplementedError
@@ -134,10 +129,9 @@ class SMCSampler(Sampler):
         log_prob = to_numpy(samples.log_p_t(beta=beta)).flatten()
         log_prob[self.xp.isnan(log_prob)] = -self.xp.inf
         return log_prob
-    
+
 
 class PreconditionedSMC(SMCSampler):
-
     def __init__(
         self,
         log_likelihood: Callable,
@@ -147,7 +141,6 @@ class PreconditionedSMC(SMCSampler):
         xp: Callable,
         parameters: list[str] | None = None,
         **kwargs,
-        
     ):
         super().__init__(log_likelihood, log_prior, dims, flow, xp, parameters)
         self.pflow = None
@@ -166,7 +159,7 @@ class PreconditionedSMC(SMCSampler):
         ).flatten()
         log_prob[np.isnan(log_prob)] = -np.inf
         return log_prob
-    
+
     def init_pflow(self):
         FlowClass = self.flow.__class__
         self.pflow = FlowClass(
@@ -175,12 +168,12 @@ class PreconditionedSMC(SMCSampler):
             data_transform=self.flow.data_transform.new_instance(),
             **self.pflow_kwargs,
         )
-    
+
     def train_preconditioner(self, samples, **kwargs):
         self.init_pflow()
         self.pflow.fit(samples.x, **kwargs)
 
-    def config_dict(self, include_sample_calls = True):
-        config =  super().config_dict(include_sample_calls)
+    def config_dict(self, include_sample_calls=True):
+        config = super().config_dict(include_sample_calls)
         config["preconditioner_kwargs"] = self.pflow_kwargs
         return config

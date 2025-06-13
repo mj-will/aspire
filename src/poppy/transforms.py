@@ -53,7 +53,10 @@ class DataTransform:
         else:
             logger.info(f"Prior bounds: {prior_bounds}")
             self.prior_bounds = {
-                k: self.xp.asarray(prior_bounds[k], device=device, dtype=self.dtype) for k in self.parameters
+                k: self.xp.asarray(
+                    prior_bounds[k], device=device, dtype=self.dtype
+                )
+                for k in self.parameters
             }
             if bounded_to_unbounded:
                 self.bounded_parameters = [
@@ -119,7 +122,7 @@ class DataTransform:
             x = update_at_indices(
                 x,
                 (slice(None), self.periodic_mask),
-                self._periodic_transform.fit(x[:, self.periodic_mask])
+                self._periodic_transform.fit(x[:, self.periodic_mask]),
             )
         if self.bounded_parameters:
             logger.debug(
@@ -128,7 +131,7 @@ class DataTransform:
             x = update_at_indices(
                 x,
                 (slice(None), self.bounded_mask),
-                self._bounded_transform.fit(x[:, self.bounded_mask])
+                self._bounded_transform.fit(x[:, self.bounded_mask]),
             )
         return self.affine_transform.fit(x)
 
@@ -137,12 +140,16 @@ class DataTransform:
         x = self.xp.atleast_2d(x)
         log_abs_det_jacobian = self.xp.zeros(len(x), device=self.device)
         if self.periodic_parameters:
-            y, log_j_periodic = self._periodic_transform.forward(x[..., self.periodic_mask])
+            y, log_j_periodic = self._periodic_transform.forward(
+                x[..., self.periodic_mask]
+            )
             x = update_at_indices(x, (slice(None), self.periodic_mask), y)
             log_abs_det_jacobian += log_j_periodic
 
         if self.bounded_parameters:
-            y, log_j_bounded = self._bounded_transform.forward(x[..., self.bounded_mask])
+            y, log_j_bounded = self._bounded_transform.forward(
+                x[..., self.bounded_mask]
+            )
             x = update_at_indices(x, (slice(None), self.bounded_mask), y)
             log_abs_det_jacobian += log_j_bounded
 
@@ -158,17 +165,21 @@ class DataTransform:
         log_abs_det_jacobian += log_j_affine
 
         if self.bounded_parameters:
-            y, log_j_bounded = self._bounded_transform.inverse(x[..., self.bounded_mask])
+            y, log_j_bounded = self._bounded_transform.inverse(
+                x[..., self.bounded_mask]
+            )
             x = update_at_indices(x, (slice(None), self.bounded_mask), y)
             log_abs_det_jacobian += log_j_bounded
 
         if self.periodic_parameters:
-            y, log_j_periodic = self._periodic_transform.inverse(x[..., self.periodic_mask])
+            y, log_j_periodic = self._periodic_transform.inverse(
+                x[..., self.periodic_mask]
+            )
             x = update_at_indices(x, (slice(None), self.periodic_mask), y)
             log_abs_det_jacobian += log_j_periodic
 
         return x, log_abs_det_jacobian
-    
+
     def new_instance(self):
         return self.__class__(
             parameters=self.parameters,
@@ -237,10 +248,9 @@ class ProbitTransform(DataTransform):
         x = 0.5 * (1 + erf(y / math.sqrt(2)))
         x = (self.upper - self.lower) * x + self.lower
         return x, log_abs_det_jacobian
-    
+
 
 class LogitTransform(DataTransform):
-
     name: str = "logit"
     requires_prior_bounds: bool = True
 
@@ -262,10 +272,9 @@ class LogitTransform(DataTransform):
 
     def inverse(self, y):
         x, log_abs_det_jacobian = sigmoid(y)
-        log_abs_det_jacobian -= self._scale_log_abs_det_jacobian 
+        log_abs_det_jacobian -= self._scale_log_abs_det_jacobian
         x = (self.upper - self.lower) * x + self.lower
         return x, log_abs_det_jacobian
-
 
 
 class AffineTransform(DataTransform):

@@ -1,8 +1,10 @@
+from functools import partial
+
 import numpy as np
 
-from .base import SMCSampler
 from ...samples import SMCSamples
 from ...utils import to_numpy, track_calls
+from .base import SMCSampler
 
 
 class MiniPCNSMC(SMCSampler):
@@ -21,7 +23,6 @@ class MiniPCNSMC(SMCSampler):
         minipcn_kwargs: dict | None = None,
         rng: np.random.Generator | None = None,
     ):
-        
         self.minipcn_kwargs = minipcn_kwargs or {}
         self.minipcn_kwargs.setdefault("n_steps", 5 * self.dims)
         self.minipcn_kwargs.setdefault("target_acceptance_rate", 0.234)
@@ -45,7 +46,9 @@ class MiniPCNSMC(SMCSampler):
             step_fn=TPCNStep(self.dims, rng=self.rng),
             rng=self.rng,
             dims=self.dims,
-            target_acceptance_rate=self.minipcn_kwargs["target_acceptance_rate"],
+            target_acceptance_rate=self.minipcn_kwargs[
+                "target_acceptance_rate"
+            ],
         )
         chain, history = sampler.sample(
             to_numpy(particles.x),

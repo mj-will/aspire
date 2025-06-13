@@ -1,14 +1,15 @@
 import logging
 
-from .base import SMCSampler, PreconditionedSMC
+import numpy as np
+
 from ...samples import SMCSamples
 from ...utils import to_numpy, track_calls
+from .base import PreconditionedSMC, SMCSampler
 
 logger = logging.getLogger(__name__)
 
 
 class EmceeSMC(SMCSampler):
-
     @track_calls
     def sample(
         self,
@@ -20,7 +21,7 @@ class EmceeSMC(SMCSampler):
         n_final_samples: int | None = None,
     ):
         self.emcee_kwargs = emcee_kwargs or {}
-        self.emcee_kwargs.setdefault("nsteps", 5 * self.dims )
+        self.emcee_kwargs.setdefault("nsteps", 5 * self.dims)
         self.emcee_kwargs.setdefault("progress", True)
         self.emcee_moves = self.emcee_kwargs.pop("moves", None)
         return super().sample(
@@ -44,9 +45,13 @@ class EmceeSMC(SMCSampler):
             moves=self.emcee_moves,
         )
         sampler.run_mcmc(to_numpy(particles.x), **self.emcee_kwargs)
-        self.history.mcmc_acceptance.append(np.mean(sampler.acceptance_fraction))
+        self.history.mcmc_acceptance.append(
+            np.mean(sampler.acceptance_fraction)
+        )
         self.history.mcmc_autocorr.append(
-            sampler.get_autocorr_time(quiet=True, discard=int(0.2 * self.emcee_kwargs["nsteps"]))
+            sampler.get_autocorr_time(
+                quiet=True, discard=int(0.2 * self.emcee_kwargs["nsteps"])
+            )
         )
         x = sampler.get_chain(flat=False)[-1, ...]
         samples = SMCSamples(x, xp=self.xp, beta=beta)
@@ -60,10 +65,9 @@ class EmceeSMC(SMCSampler):
         if np.isnan(samples.log_q).any():
             raise ValueError("Log proposal contains NaN values")
         return samples
-    
+
 
 class EmceePSMC(PreconditionedSMC, EmceeSMC):
-
     def mutate(self, particles, beta):
         import emcee
 
@@ -79,9 +83,13 @@ class EmceePSMC(PreconditionedSMC, EmceeSMC):
         )
         z = to_numpy(self.pflow.forward(particles.x)[0])
         sampler.run_mcmc(z, **self.emcee_kwargs)
-        self.history.mcmc_acceptance.append(np.mean(sampler.acceptance_fraction))
+        self.history.mcmc_acceptance.append(
+            np.mean(sampler.acceptance_fraction)
+        )
         self.history.mcmc_autocorr.append(
-            sampler.get_autocorr_time(quiet=True, discard=int(0.2 * self.emcee_kwargs["nsteps"]))
+            sampler.get_autocorr_time(
+                quiet=True, discard=int(0.2 * self.emcee_kwargs["nsteps"])
+            )
         )
         z = sampler.get_chain(flat=False)[-1, ...]
         x, _ = self.pflow.inverse(z)

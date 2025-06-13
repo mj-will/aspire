@@ -1,5 +1,6 @@
-from poppy import Poppy
 import pytest
+
+from poppy import Poppy
 
 
 def test_integration_zuko(
@@ -12,7 +13,6 @@ def test_integration_zuko(
     bounded_to_unbounded,
     samples_backend,
 ):
-    
     if samples_backend == "jax":
         pytest.xfail(
             reason="Converting jax arrays to PyTorch tensors is not supported. See https://github.com/pytorch/pytorch/issues/32868."
@@ -42,7 +42,6 @@ def test_integration_flowjax(
     prior_bounds,
     bounded_to_unbounded,
 ):
-
     import jax
 
     poppy = Poppy(

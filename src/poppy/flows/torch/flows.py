@@ -1,4 +1,5 @@
 import logging
+
 import torch
 import tqdm
 import zuko
@@ -9,6 +10,7 @@ from ...history import FlowHistory
 from ..base import Flow
 
 logger = logging.getLogger(__name__)
+
 
 class BaseTorchFlow(Flow):
     _flow = None
@@ -61,7 +63,7 @@ class ZukoFlow(BaseTorchFlow):
             seed=seed,
         )
         FlowClass = getattr(zuko.flows, flow_class)
-        
+
         # Ints are some times passed as strings, so we convert them
         if hidden_features := kwargs.pop("hidden_features", None):
             kwargs["hidden_features"] = list(map(int, hidden_features))
@@ -108,13 +110,9 @@ class ZukoFlow(BaseTorchFlow):
         )
 
         if torch.isnan(x_train).any():
-            raise ValueError(
-                "Training data contains NaN values."
-            )
+            raise ValueError("Training data contains NaN values.")
         if not torch.isfinite(x_train).all():
-            raise ValueError(
-                "Training data contains infinite values."
-            )
+            raise ValueError("Training data contains infinite values.")
 
         x_val = torch.as_tensor(
             x_prime[-int(validation_fraction * n) :],
@@ -122,14 +120,10 @@ class ZukoFlow(BaseTorchFlow):
             device=self.device,
         )
         if torch.isnan(x_val).any():
-            raise ValueError(
-                "Validation data contains infinite values."
-            )
-        
+            raise ValueError("Validation data contains infinite values.")
+
         if not torch.isfinite(x_val).all():
-            raise ValueError(
-                "Validation data contains infinite values."
-            )
+            raise ValueError("Validation data contains infinite values.")
 
         dataset = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(x_train),

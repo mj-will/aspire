@@ -1,5 +1,6 @@
-import  numpy as np
+import numpy as np
 import pytest
+
 from poppy.samples import Samples
 
 
@@ -22,13 +23,16 @@ def prior_bounds(parameters):
 def n_samples():
     return 500
 
+
 @pytest.fixture
 def likelihood_mean():
     return 2.0
 
+
 @pytest.fixture
 def likelihood_std():
     return 1.0
+
 
 @pytest.fixture
 def initial_samples(dims, rng, likelihood_mean, likelihood_std, n_samples):
@@ -71,22 +75,26 @@ def xp(samples_backend):
 @pytest.fixture
 def log_likelihood(likelihood_mean, likelihood_std):
     xp = np
+
     def _log_likelihood(samples):
         x = xp.asarray(samples.x)
         constant = xp.log(1 / (likelihood_std * xp.sqrt(2 * xp.pi)))
-        return xp.sum(constant - (0.5 * ((x - likelihood_mean) / likelihood_std) ** 2), axis=-1)
-    return _log_likelihood
+        return xp.sum(
+            constant - (0.5 * ((x - likelihood_mean) / likelihood_std) ** 2),
+            axis=-1,
+        )
 
+    return _log_likelihood
 
 
 @pytest.fixture
 def log_prior(dims):
     xp = np
+
     def _log_prior(samples):
         x = xp.asarray(samples.x)
         constant = dims * xp.log(1 / 10)
         val = xp.where((x >= -10) & (x <= 10), constant, -xp.inf)
         return xp.sum(val, axis=-1)
+
     return _log_prior
-
-
