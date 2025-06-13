@@ -202,14 +202,14 @@ class Poppy:
                 )
         elif sampler_type == "emcee":
             from .samplers.mcmc import Emcee as SamplerClass
-        elif sampler_type == "smc":
-            from .samplers.smc import EmceeSMC as SamplerClass
-        elif sampler_type == "psmc":
-            from .samplers.smc import EmceePSMC as SamplerClass
+        elif sampler_type == "emcee_smc":
+            from .samplers.smc.emcee import EmceeSMC as SamplerClass
+        elif sampler_type == "emcee_psmc":
+            from .samplers.smc.emcee import EmceePSMC as SamplerClass
         elif sampler_type == "minipcn":
             from .samplers.mcmc import MiniPCN as SamplerClass
-        elif sampler_type == "minipcn_smc":
-            from .samplers.smc import MiniPCNSMC as SamplerClass
+        elif sampler_type in ["smc", "minipcn_smc"]:
+            from .samplers.smc.minipcn import MiniPCNSMC as SamplerClass
         else:
             raise ValueError
 
