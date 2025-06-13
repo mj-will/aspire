@@ -19,6 +19,7 @@ dependencies = [
     "numpy",
     "array-api-compat",
     "wrapt",
+    "h5py",
 ]
 
 dynamic = ["version"]
