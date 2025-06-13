@@ -52,7 +52,14 @@ class BaseSamples:
             self.log_q = self.array_to_namespace(self.log_q)
 
         if self.parameters is None:
-            self.parameters = [f"x_{i}" for i in range(len(self.x[0]))]
+            self.parameters = [f"x_{i}" for i in range(self.dims)]
+
+    @property
+    def dims(self):
+        """Number of dimensions (parameters) in the samples."""
+        if self.x is None:
+            return 0
+        return self.x.shape[1] if self.x.ndim > 1 else 1
 
     def to_numpy(self):
         return self.__class__(
