@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import multiprocessing as mp
 from typing import Callable
