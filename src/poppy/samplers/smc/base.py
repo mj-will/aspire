@@ -113,7 +113,9 @@ class SMCSampler(Sampler):
             if beta == 1.0:
                 break
 
-        samples.log_evidence = samples.xp.sum(self.history.log_norm_ratio)
+        samples.log_evidence = samples.xp.sum(
+            self.xp.asarray(self.history.log_norm_ratio)
+        )
         samples.log_evidence_error = samples.xp.nan
         final_samples = samples.to_standard_samples()
         logger.info(f"Log evidence: {final_samples.log_evidence:.2f}")

@@ -345,7 +345,6 @@ class SMCSamples(BaseSamples):
             n_samples = len(self.x)
         log_w = self.log_weights(beta)
         w = to_numpy(self.xp.exp(log_w - logsumexp(log_w)))
-        print(2, w.sum())
         idx = np.random.choice(len(self.x), size=n_samples, replace=True, p=w)
         return self.__class__(
             x=self.x[idx],
