@@ -37,6 +37,9 @@ torch = [
 minipcn = [
     "minipcn",
 ]
+emcee = [
+    "emcee",
+]
 test = [
     "pytest",
     "pytest-requires",
