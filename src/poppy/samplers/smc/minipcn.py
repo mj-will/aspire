@@ -1,15 +1,13 @@
-from __future__ import annotations
-
 from functools import partial
 
 import numpy as np
 
 from ...samples import SMCSamples
 from ...utils import to_numpy, track_calls
-from .base import SMCSampler
+from .base import NumpySMCSampler
 
 
-class MiniPCNSMC(SMCSampler):
+class MiniPCNSMC(NumpySMCSampler):
     """MiniPCN SMC sampler."""
 
     rng = None
@@ -55,17 +53,19 @@ class MiniPCNSMC(SMCSampler):
                 "target_acceptance_rate"
             ],
         )
+        # Map to transformed dimension for sampling
+        z = to_numpy(self.fit_preconditioning_transform(particles.x))
         chain, history = sampler.sample(
-            to_numpy(particles.x),
+            z,
             n_steps=self.minipcn_kwargs["n_steps"],
         )
-        x = chain[-1]
+        x = self.preconditioning_transform.inverse(chain[-1])[0]
 
         self.history.mcmc_acceptance.append(np.mean(history.acceptance_rate))
 
         samples = SMCSamples(x, xp=self.xp, beta=beta)
         samples.log_q = samples.array_to_namespace(
-            self.flow.log_prob(samples.x)
+            self.prior_flow.log_prob(samples.x)
         )
         samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
         samples.log_likelihood = samples.array_to_namespace(

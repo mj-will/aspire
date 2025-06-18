@@ -5,12 +5,46 @@ from typing import Any
 from array_api_compat import is_torch_namespace
 from scipy.special import erf, erfinv
 
-from .utils import copy_array, logit, sigmoid, update_at_indices
+from .flows import get_flow_wrapper
+from .utils import (
+    copy_array,
+    logit,
+    sigmoid,
+    update_at_indices,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class DataTransform:
+class BaseTransform:
+    def __init__(self, xp=None, dtype=None):
+        self.xp = xp
+        if is_torch_namespace(self.xp) and dtype is None:
+            dtype = self.xp.get_default_dtype()
+        self.dtype = dtype
+
+    def fit(self, x):
+        raise NotImplementedError("Subclasses must implement fit method.")
+
+    def forward(self, x):
+        raise NotImplementedError("Subclasses must implement forward method.")
+
+    def inverse(self, y):
+        raise NotImplementedError("Subclasses must implement inverse method.")
+
+
+class IdentityTransform(BaseTransform):
+    def fit(self, x):
+        return x
+
+    def forward(self, x):
+        return x, self.xp.zeros(len(x), device=x.device)
+
+    def inverse(self, y):
+        return y, self.xp.zeros(len(y), device=y.device)
+
+
+class CompositeTransform(BaseTransform):
     def __init__(
         self,
         parameters: list[int],
@@ -18,11 +52,13 @@ class DataTransform:
         prior_bounds: list[tuple[float, float]] = None,
         bounded_to_unbounded: bool = True,
         bounded_transform: str = "probit",
+        affine_transform: bool = True,
         device=None,
         xp: None = None,
         eps: float = 1e-6,
         dtype: Any = None,
     ):
+        super().__init__(xp=xp, dtype=dtype)
         if prior_bounds is None:
             logger.warning(
                 "Missing prior bounds, some transforms may not be applied."
@@ -35,14 +71,10 @@ class DataTransform:
         self.periodic_parameters = periodic_parameters or []
         self.bounded_to_unbounded = bounded_to_unbounded
         self.bounded_transform = bounded_transform
+        self.affine_transform = affine_transform
 
-        self.xp = xp
-        self.device = device
         self.eps = eps
-
-        if is_torch_namespace(self.xp) and dtype is None:
-            dtype = self.xp.get_default_dtype()
-        self.dtype = dtype
+        self.device = device
 
         if prior_bounds is None:
             self.prior_bounds = None
@@ -109,8 +141,12 @@ class DataTransform:
                 xp=self.xp,
                 eps=self.eps,
             )
-        logger.info(f"Affine transform applied to: {self.parameters}")
-        self.affine_transform = AffineTransform(xp=self.xp)
+
+        if self.affine_transform:
+            logger.info(f"Affine transform applied to: {self.parameters}")
+            self._affine_transform = AffineTransform(xp=self.xp)
+        else:
+            self._affine_transform = None
 
     def fit(self, x):
         x = copy_array(x, xp=self.xp)
@@ -132,7 +168,10 @@ class DataTransform:
                 (slice(None), self.bounded_mask),
                 self._bounded_transform.fit(x[:, self.bounded_mask]),
             )
-        return self.affine_transform.fit(x)
+        if self.affine_transform:
+            logger.debug("Fitting affine transform to all parameters.")
+            x = self._affine_transform.fit(x)
+        return x
 
     def forward(self, x):
         x = copy_array(x, xp=self.xp)
@@ -152,16 +191,18 @@ class DataTransform:
             x = update_at_indices(x, (slice(None), self.bounded_mask), y)
             log_abs_det_jacobian += log_j_bounded
 
-        x, log_j_affine = self.affine_transform.forward(x)
-        log_abs_det_jacobian += log_j_affine
+        if self.affine_transform:
+            x, log_j_affine = self._affine_transform.forward(x)
+            log_abs_det_jacobian += log_j_affine
         return x, log_abs_det_jacobian
 
     def inverse(self, x):
         x = copy_array(x, xp=self.xp)
         x = self.xp.atleast_2d(x)
         log_abs_det_jacobian = self.xp.zeros(len(x), device=self.device)
-        x, log_j_affine = self.affine_transform.inverse(x)
-        log_abs_det_jacobian += log_j_affine
+        if self.affine_transform:
+            x, log_j_affine = self._affine_transform.inverse(x)
+            log_abs_det_jacobian += log_j_affine
 
         if self.bounded_parameters:
             y, log_j_bounded = self._bounded_transform.inverse(
@@ -179,7 +220,7 @@ class DataTransform:
 
         return x, log_abs_det_jacobian
 
-    def new_instance(self):
+    def new_instance(self, xp=None):
         return self.__class__(
             parameters=self.parameters,
             periodic_parameters=self.periodic_parameters,
@@ -187,21 +228,64 @@ class DataTransform:
             bounded_to_unbounded=self.bounded_to_unbounded,
             bounded_transform=self.bounded_transform,
             device=self.device,
-            xp=self.xp,
+            xp=xp or self.xp,
             eps=self.eps,
         )
 
 
-class PeriodicTransform(DataTransform):
+class FlowTransform(CompositeTransform):
+    """Subclass of CompositeTransform that uses a Flow for transformations.
+
+    Does not support periodic transforms.
+    """
+
+    def __init__(
+        self,
+        parameters: list[int],
+        prior_bounds: list[tuple[float, float]] = None,
+        bounded_to_unbounded: bool = True,
+        bounded_transform: str = "probit",
+        affine_transform: bool = True,
+        device=None,
+        xp=None,
+        eps=1e-6,
+        dtype=None,
+    ):
+        super().__init__(
+            parameters=parameters,
+            periodic_parameters=[],
+            prior_bounds=prior_bounds,
+            bounded_to_unbounded=bounded_to_unbounded,
+            bounded_transform=bounded_transform,
+            affine_transform=affine_transform,
+            device=device,
+            xp=xp,
+            eps=eps,
+            dtype=dtype,
+        )
+
+    def new_instance(self, xp=None):
+        return self.__class__(
+            parameters=self.parameters,
+            prior_bounds=self.prior_bounds,
+            bounded_to_unbounded=self.bounded_to_unbounded,
+            bounded_transform=self.bounded_transform,
+            device=self.device,
+            xp=xp or self.xp,
+            eps=self.eps,
+        )
+
+
+class PeriodicTransform(BaseTransform):
     name: str = "periodic"
     requires_prior_bounds: bool = True
 
     def __init__(self, lower, upper, xp, dtype=None):
+        super().__init__(xp=xp, dtype=dtype)
         self.lower = xp.asarray(lower, dtype=dtype)
         self.upper = xp.asarray(upper, dtype=dtype)
         self._width = upper - lower
         self._shift = None
-        self.xp = xp
 
     def fit(self, x):
         return self.forward(x)[0]
@@ -215,7 +299,7 @@ class PeriodicTransform(DataTransform):
         return x, self.xp.zeros(x.shape[0], device=x.device)
 
 
-class ProbitTransform(DataTransform):
+class ProbitTransform(BaseTransform):
     name: str = "probit"
     requires_prior_bounds: bool = True
 
@@ -249,7 +333,7 @@ class ProbitTransform(DataTransform):
         return x, log_abs_det_jacobian
 
 
-class LogitTransform(DataTransform):
+class LogitTransform(BaseTransform):
     name: str = "logit"
     requires_prior_bounds: bool = True
 
@@ -276,7 +360,7 @@ class LogitTransform(DataTransform):
         return x, log_abs_det_jacobian
 
 
-class AffineTransform(DataTransform):
+class AffineTransform(BaseTransform):
     name: str = "affine"
     requires_prior_bounds: bool = False
 
@@ -301,4 +385,92 @@ class AffineTransform(DataTransform):
         x = y * self._std + self._mean
         return x, -self.log_abs_det_jacobian * self.xp.ones(
             y.shape[0], device=y.device
+        )
+
+
+class FlowPreconditioningTransform(BaseTransform):
+    def __init__(
+        self,
+        parameters: list[int],
+        flow_backend: str = "zuko",
+        prior_bounds: list[tuple[float, float]] = None,
+        bounded_to_unbounded: bool = True,
+        bounded_transform: str = "probit",
+        affine_transform: bool = True,
+        periodic_parameters: list[int] = None,
+        device=None,
+        xp=None,
+        eps=1e-6,
+        dtype=None,
+        flow_matching: bool = False,
+        flow_kwargs: dict[str, Any] = None,
+        fit_kwargs: dict[str, Any] = None,
+    ):
+        super().__init__(xp=xp, dtype=dtype)
+
+        self.parameters = parameters
+        self.periodic_parameters = periodic_parameters or []
+        self.prior_bounds = prior_bounds
+        self.bounded_to_unbounded = bounded_to_unbounded
+        self.bounded_transform = bounded_transform
+        self.affine_transform = affine_transform
+        self.eps = eps
+        self.device = device or "cpu"
+        self.flow_backend = flow_backend
+        self.flow_matching = flow_matching
+        self.flow_kwargs = flow_kwargs or {}
+        self.fit_kwargs = fit_kwargs or {}
+
+        FlowClass = get_flow_wrapper(
+            backend=flow_backend, flow_matching=flow_matching
+        )
+        transform = CompositeTransform(
+            parameters=parameters,
+            periodic_parameters=periodic_parameters,
+            prior_bounds=prior_bounds,
+            bounded_to_unbounded=bounded_to_unbounded,
+            bounded_transform=bounded_transform,
+            affine_transform=affine_transform,
+            device=device,
+            xp=FlowClass.xp,
+            eps=eps,
+            dtype=dtype,
+        )
+
+        self._data_transform = transform
+        self._FlowClass = FlowClass
+        self.flow = None
+
+    def fit(self, x):
+        self.flow = self._FlowClass(
+            dims=len(self.parameters),
+            device=self.device,
+            data_transform=self._data_transform,
+            **self.flow_kwargs,
+        )
+        self.flow.fit(x, **self.fit_kwargs)
+        return self.flow.forward(x, xp=self.xp)[0]
+
+    def forward(self, x):
+        return self.flow.forward(x, xp=self.xp)
+
+    def inverse(self, y):
+        return self.flow.inverse(y, xp=self.xp)
+
+    def new_instance(self, xp=None):
+        return self.__class__(
+            parameters=self.parameters,
+            periodic_parameters=self.periodic_parameters,
+            prior_bounds=self.prior_bounds,
+            bounded_to_unbounded=self.bounded_to_unbounded,
+            bounded_transform=self.bounded_transform,
+            affine_transform=self.affine_transform,
+            device=self.device,
+            xp=xp or self.xp,
+            eps=self.eps,
+            dtype=self.dtype,
+            flow_backend=self.flow_backend,
+            flow_matching=self.flow_matching,
+            flow_kwargs=self.flow_kwargs,
+            fit_kwargs=self.fit_kwargs,
         )

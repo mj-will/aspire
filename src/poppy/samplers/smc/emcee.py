@@ -1,17 +1,15 @@
-from __future__ import annotations
-
 import logging
 
 import numpy as np
 
 from ...samples import SMCSamples
-from ...utils import to_numpy, track_calls
-from .base import PreconditionedSMC, SMCSampler
+from ...utils import track_calls
+from .base import NumpySMCSampler
 
 logger = logging.getLogger(__name__)
 
 
-class EmceeSMC(SMCSampler):
+class EmceeSMC(NumpySMCSampler):
     @track_calls
     def sample(
         self,
@@ -46,44 +44,7 @@ class EmceeSMC(SMCSampler):
             vectorize=True,
             moves=self.emcee_moves,
         )
-        sampler.run_mcmc(to_numpy(particles.x), **self.emcee_kwargs)
-        self.history.mcmc_acceptance.append(
-            np.mean(sampler.acceptance_fraction)
-        )
-        self.history.mcmc_autocorr.append(
-            sampler.get_autocorr_time(
-                quiet=True, discard=int(0.2 * self.emcee_kwargs["nsteps"])
-            )
-        )
-        x = sampler.get_chain(flat=False)[-1, ...]
-        samples = SMCSamples(x, xp=self.xp, beta=beta)
-        samples.log_q = samples.array_to_namespace(
-            self.flow.log_prob(samples.x)
-        )
-        samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
-        samples.log_likelihood = samples.array_to_namespace(
-            self.log_likelihood(samples)
-        )
-        if np.isnan(samples.log_q).any():
-            raise ValueError("Log proposal contains NaN values")
-        return samples
-
-
-class EmceePSMC(PreconditionedSMC, EmceeSMC):
-    def mutate(self, particles, beta):
-        import emcee
-
-        self.train_preconditioner(particles)
-        logger.info("Mutating particles")
-        sampler = emcee.EnsembleSampler(
-            len(particles.x),
-            self.dims,
-            self.log_prob,
-            args=(beta,),
-            vectorize=True,
-            moves=self.emcee_moves,
-        )
-        z = to_numpy(self.pflow.forward(particles.x)[0])
+        z = self.fit_preconditioning_transform(particles.x)
         sampler.run_mcmc(z, **self.emcee_kwargs)
         self.history.mcmc_acceptance.append(
             np.mean(sampler.acceptance_fraction)
@@ -94,10 +55,10 @@ class EmceePSMC(PreconditionedSMC, EmceeSMC):
             )
         )
         z = sampler.get_chain(flat=False)[-1, ...]
-        x, _ = self.pflow.inverse(z)
+        x = self.preconditioning_transform.inverse(z)[0]
         samples = SMCSamples(x, xp=self.xp, beta=beta)
         samples.log_q = samples.array_to_namespace(
-            self.flow.log_prob(samples.x)
+            self.prior_flow.log_prob(samples.x)
         )
         samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
         samples.log_likelihood = samples.array_to_namespace(

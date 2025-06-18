@@ -6,7 +6,7 @@ from .base import Sampler
 class ImportanceSampler(Sampler):
     @track_calls
     def sample(self, n_samples: int) -> Samples:
-        x, log_q = self.flow.sample_and_log_prob(n_samples)
+        x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
         samples = Samples(
             x, log_q=log_q, xp=self.xp, parameters=self.parameters
         )

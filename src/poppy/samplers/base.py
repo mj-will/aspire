@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 import logging
 from typing import Callable
 
 from ..flows.base import Flow
 from ..samples import Samples
+from ..transforms import IdentityTransform
 from ..utils import track_calls
 
 logger = logging.getLogger(__name__)
@@ -35,11 +34,12 @@ class Sampler:
         log_likelihood: Callable,
         log_prior: Callable,
         dims: int,
-        flow: Flow,
+        prior_flow: Flow,
         xp: Callable,
         parameters: list[str] | None = None,
+        preconditioning_transform: Callable | None = None,
     ):
-        self.flow = flow
+        self.prior_flow = prior_flow
         self._log_likelihood = log_likelihood
         self.log_prior = log_prior
         self.dims = dims
@@ -47,6 +47,15 @@ class Sampler:
         self.parameters = parameters
         self.history = None
         self.n_likelihood_evaluations = 0
+        if preconditioning_transform is None:
+            self.preconditioning_transform = IdentityTransform(xp=self.xp)
+        else:
+            self.preconditioning_transform = preconditioning_transform
+
+    def fit_preconditioning_transform(self, x):
+        """Fit the data transform to the data."""
+        x = self.preconditioning_transform.xp.asarray(x)
+        return self.preconditioning_transform.fit(x)
 
     @track_calls
     def sample(self, n_samples: int) -> Samples:

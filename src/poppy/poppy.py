@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import multiprocessing as mp
 from typing import Callable
@@ -9,7 +7,11 @@ import h5py
 from .flows import get_flow_wrapper
 from .history import History
 from .samples import Samples
-from .transforms import DataTransform
+from .transforms import (
+    CompositeTransform,
+    FlowPreconditioningTransform,
+    FlowTransform,
+)
 from .utils import recursively_save_to_h5_file
 
 logger = logging.getLogger(__name__)
@@ -153,10 +155,9 @@ class Poppy:
                 f"Unsupported flow backend: {self.flow_backend}. "
                 "Supported backends are 'zuko' and 'flowjax'."
             )
-        data_transform = DataTransform(
+        data_transform = FlowTransform(
             parameters=self.parameters,
             prior_bounds=self.prior_bounds,
-            periodic_parameters=self.periodic_parameters,
             bounded_to_unbounded=self.bounded_to_unbounded,
             bounded_transform=self.bounded_transform,
             device=self.device,
@@ -187,7 +188,13 @@ class Poppy:
         history = self.flow.fit(samples.x, **kwargs)
         return history
 
-    def init_sampler(self, sampler_type: str, **kwargs) -> Callable:
+    def init_sampler(
+        self,
+        sampler_type: str,
+        preconditioning=None,
+        preconditioning_kwargs=None,
+        **kwargs,
+    ) -> Callable:
         """Initialize the sampler for posterior sampling.
 
         Parameters
@@ -215,12 +222,47 @@ class Poppy:
         else:
             raise ValueError
 
+        preconditioning = preconditioning.lower() if preconditioning else None
+
+        if preconditioning is None:
+            transform = None
+        elif preconditioning in ["standard", "default"]:
+            preconditioning_kwargs = preconditioning_kwargs or {}
+            preconditioning_kwargs.setdefault("affine_transform", False)
+            transform = CompositeTransform(
+                parameters=self.parameters,
+                prior_bounds=self.prior_bounds,
+                periodic_parameters=self.periodic_parameters,
+                bounded_to_unbounded=False,
+                xp=self.xp,
+                device=self.device,
+                **preconditioning_kwargs,
+            )
+        elif preconditioning == "flow":
+            preconditioning_kwargs = preconditioning_kwargs or {}
+            preconditioning_kwargs.setdefault("affine_transform", False)
+            transform = FlowPreconditioningTransform(
+                parameters=self.parameters,
+                flow_backend=self.flow_backend,
+                flow_kwargs=self.flow_kwargs,
+                flow_matching=self.flow_matching,
+                periodic_parameters=self.periodic_parameters,
+                bounded_to_unbounded=self.bounded_to_unbounded,
+                prior_bounds=self.prior_bounds,
+                xp=self.xp,
+                device=self.device,
+                **preconditioning_kwargs,
+            )
+        else:
+            raise ValueError(f"Unknown preconditioning: {preconditioning}")
+
         sampler = SamplerClass(
             log_likelihood=self.log_likelihood,
             log_prior=self.log_prior,
             dims=self.dims,
-            flow=self.flow,
+            prior_flow=self.flow,
             xp=self.xp,
+            preconditioning_transform=transform,
             **kwargs,
         )
         return sampler
@@ -231,6 +273,8 @@ class Poppy:
         sampler: str = "importance",
         xp=None,
         return_history: bool = False,
+        preconditioning: str = None,
+        preconditioning_kwargs: dict = None,
         sampler_kwargs: dict = None,
         **kwargs,
     ) -> Samples:
@@ -247,7 +291,13 @@ class Poppy:
             Samples object contain samples and their corresponding weights.
         """
         sampler_kwargs = sampler_kwargs or {}
-        self._sampler = self.init_sampler(sampler, **sampler_kwargs)
+
+        self._sampler = self.init_sampler(
+            sampler,
+            preconditioning=preconditioning,
+            preconditioning_kwargs=preconditioning_kwargs,
+            **sampler_kwargs,
+        )
         samples = self._sampler.sample(n_samples, **kwargs)
         if xp is not None:
             samples = samples.to_namespace(xp)
