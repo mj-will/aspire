@@ -227,9 +227,12 @@ class Poppy:
         """
         SamplerClass = self.get_sampler_class(sampler_type)
 
+        if sampler_type != "importance" and preconditioning is None:
+            preconditioning = "default"
+
         preconditioning = preconditioning.lower() if preconditioning else None
 
-        if preconditioning is None:
+        if preconditioning is None or preconditioning == "none":
             transform = None
         elif preconditioning in ["standard", "default"]:
             preconditioning_kwargs = preconditioning_kwargs or {}
@@ -313,7 +316,9 @@ class Poppy:
             Whether to return the history of the sampler.
         preconditioning: str
             Type of preconditioning to apply in the sampler. Options are
-            'standard', 'flow', or None.
+            'default', 'flow', or 'none'. If not specified, the default
+            will depend on the sampler being used. The importance sampler
+            will default to 'none' and the other samplers to 'default'
         preconditioning_kwargs: dict
             Keyword arguments to pass to the preconditioning transform.
         kwargs : dict
