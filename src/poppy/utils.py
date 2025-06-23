@@ -264,6 +264,11 @@ def encode_for_hdf5(value: Any) -> Any:
     - None is replaced with "__none__"
     - Empty dictionaries are replaced with "__empty_dict__"
     """
+    if isinstance(value, CallHistory):
+        # Convert CallHistory to a dictionary for HDF5 storage
+        print("mapping to dict")
+        assert False
+        return value.to_dict(list_to_dict=True)
     if isinstance(value, np.ndarray):
         return value
     if isinstance(value, (int, float, str)):
@@ -372,6 +377,27 @@ class CallHistory:
 
     args: list[tuple]
     kwargs: list[dict]
+
+    def to_dict(self, list_to_dict: bool = False) -> dict[str, Any]:
+        """Convert the call history to a dictionary.
+
+        Parameters
+        ----------
+        list_to_dict : bool
+            If True, convert the lists of args and kwargs to dictionaries
+            with string keys. If False, keep them as lists. This is useful
+            when encoding the history for HDF5.
+        """
+        if list_to_dict:
+            return {
+                "args": {str(i): v for i, v in enumerate(self.args)},
+                "kwargs": {str(i): v for i, v in enumerate(self.kwargs)},
+            }
+        else:
+            return {
+                "args": [list(arg) for arg in self.args],
+                "kwargs": [dict(kwarg) for kwarg in self.kwargs],
+            }
 
 
 def track_calls(wrapped=None):

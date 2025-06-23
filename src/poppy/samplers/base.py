@@ -82,10 +82,9 @@ class Sampler:
         config = {}
         if include_sample_calls:
             if hasattr(self, "sample") and hasattr(self.sample, "calls"):
-                config["sample_calls"] = {
-                    "args": self.sample.calls.args,
-                    "kwargs": self.sample.calls.kwargs,
-                }
+                config["sample_calls"] = self.sample.calls.to_dict(
+                    list_to_dict=True
+                )
             else:
                 logger.warning(
                     "Sampler does not have a sample method with calls attribute."
