@@ -216,7 +216,7 @@ class Poppy:
     def init_sampler(
         self,
         sampler_type: str,
-        preconditioning=None,
+        preconditioning="default",
         preconditioning_kwargs=None,
         **kwargs,
     ) -> Callable:
