@@ -1,14 +1,14 @@
 import torch
 
 from poppy.flows.torch.flows import ZukoFlow
-from poppy.transforms import DataTransform
+from poppy.transforms import FlowTransform
 
 
 def test_zuko_flow():
     dims = 3
     parameters = [f"x_{i}" for i in range(dims)]
 
-    data_transform = DataTransform(parameters=parameters, xp=torch)
+    data_transform = FlowTransform(parameters=parameters, xp=torch)
 
     # Create an instance of ZukoFlow
     flow = ZukoFlow(
