@@ -1,7 +1,7 @@
 import logging
 import multiprocessing as mp
 from inspect import signature
-from typing import Callable
+from typing import Any, Callable
 
 import h5py
 
@@ -214,8 +214,8 @@ class Poppy:
     def init_sampler(
         self,
         sampler_type: str,
-        preconditioning="default",
-        preconditioning_kwargs=None,
+        preconditioning: str | None = None,
+        preconditioning_kwargs: dict | None = None,
         **kwargs,
     ) -> Callable:
         """Initialize the sampler for posterior sampling.
@@ -274,20 +274,52 @@ class Poppy:
 
     def sample_posterior(
         self,
-        n_samples: int = 1,
+        n_samples: int = 1000,
         sampler: str = "importance",
-        xp=None,
+        xp: Any = None,
         return_history: bool = False,
-        preconditioning: str = None,
-        preconditioning_kwargs: dict = None,
+        preconditioning: str | None = None,
+        preconditioning_kwargs: dict | None = None,
         **kwargs,
     ) -> Samples:
         """Draw samples from the posterior distribution.
+
+        If using a sampler that calls an external sampler, e.g.
+        :code:`minipcn` then keyword arguments for this sampler should be
+        specified in :code:`sampler_kwargs`. For example:
+
+        .. code-block:: python
+
+            poppy = Poppy(...)
+            poppy.sample_posterior(
+                n_samples=1000,
+                sampler="minipcn_smc",
+                adaptive=True,
+                sampler_kwargs=dict(
+                    n_steps=100,
+                    step_fn="tpcn",
+                )
+            )
 
         Parameters
         ----------
         n_samples : int
             The number of sample to draw.
+        sampler: str
+            Sampling algorithm to use for drawing the posterior samples.
+        xp: Any
+            Array API for the final samples.
+        return_history : bool
+            Whether to return the history of the sampler.
+        preconditioning: str
+            Type of preconditioning to apply in the sampler. Options are
+            'standard', 'flow', or None.
+        preconditioning_kwargs: dict
+            Keyword arguments to pass to the preconditioning transform.
+        kwargs : dict
+            Keyword arguments to pass to the sampler. These are passed
+            automatically to the init method of the sampler or to the sample
+            method.
 
         Returns
         -------
