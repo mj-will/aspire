@@ -2,6 +2,7 @@ import logging
 import math
 from typing import Any
 
+from array_api_compat import device as get_device
 from array_api_compat import is_torch_namespace
 from scipy.special import erf, erfinv
 
@@ -52,10 +53,10 @@ class IdentityTransform(BaseTransform):
         return x
 
     def forward(self, x):
-        return x, self.xp.zeros(len(x), device=x.device)
+        return x, self.xp.zeros(len(x), device=get_device(x))
 
     def inverse(self, y):
-        return y, self.xp.zeros(len(y), device=y.device)
+        return y, self.xp.zeros(len(y), device=get_device(y))
 
 
 class CompositeTransform(BaseTransform):
