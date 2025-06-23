@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING, Any
 import array_api_compat.numpy as np
 import h5py
 import wrapt
-from array_api_compat import array_namespace, is_torch_namespace, to_device
+from array_api_compat import (
+    array_namespace,
+    is_torch_array,
+    is_torch_namespace,
+    to_device,
+)
 
 if TYPE_CHECKING:
     from multiprocessing import Pool
@@ -213,8 +218,12 @@ def copy_array(x, xp: Any = None) -> Array:
     """
     if xp is None:
         xp = array_namespace(x)
+    # torch does not play nicely since it complains about copying tensors
     if is_torch_namespace(xp):
-        return xp.clone(x)
+        if is_torch_array(x):
+            return xp.clone(x)
+        else:
+            return xp.as_tensor(x)
     else:
         try:
             return xp.copy(x)
@@ -265,9 +274,6 @@ def encode_for_hdf5(value: Any) -> Any:
     - Empty dictionaries are replaced with "__empty_dict__"
     """
     if isinstance(value, CallHistory):
-        # Convert CallHistory to a dictionary for HDF5 storage
-        print("mapping to dict")
-        assert False
         return value.to_dict(list_to_dict=True)
     if isinstance(value, np.ndarray):
         return value
