@@ -78,7 +78,7 @@ class SMCSampler(Sampler):
                 beta_max = 1.0
                 ess = effective_sample_size(samples.log_weights(beta_max))
                 eff = ess / len(samples.x)
-                if np.isnan(eff):
+                if self.xp.isnan(eff):
                     raise ValueError("Effective sample size is NaN")
                 beta = beta_max
                 while True:

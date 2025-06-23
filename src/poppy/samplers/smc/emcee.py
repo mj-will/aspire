@@ -64,6 +64,6 @@ class EmceeSMC(NumpySMCSampler):
         samples.log_likelihood = samples.array_to_namespace(
             self.log_likelihood(samples)
         )
-        if np.isnan(samples.log_q).any():
+        if samples.xp.isnan(samples.log_q).any():
             raise ValueError("Log proposal contains NaN values")
         return samples
