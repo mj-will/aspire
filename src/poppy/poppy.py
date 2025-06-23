@@ -1,5 +1,6 @@
 import logging
 import multiprocessing as mp
+from inspect import signature
 from typing import Callable
 
 import h5py
@@ -188,6 +189,30 @@ class Poppy:
         history = self.flow.fit(samples.x, **kwargs)
         return history
 
+    def get_sampler_class(self, sampler_type: str) -> Callable:
+        """Get the sampler class based on the sampler type.
+
+        Parameters
+        ----------
+        sampler_type : str
+            The type of sampler to use. Options are 'importance', 'emcee', or 'smc'.
+        """
+        if sampler_type == "importance":
+            from .samplers.importance import ImportanceSampler as SamplerClass
+        elif sampler_type == "emcee":
+            from .samplers.mcmc import Emcee as SamplerClass
+        elif sampler_type == "emcee_smc":
+            from .samplers.smc.emcee import EmceeSMC as SamplerClass
+        elif sampler_type == "emcee_psmc":
+            from .samplers.smc.emcee import EmceePSMC as SamplerClass
+        elif sampler_type == "minipcn":
+            from .samplers.mcmc import MiniPCN as SamplerClass
+        elif sampler_type in ["smc", "minipcn_smc"]:
+            from .samplers.smc.minipcn import MiniPCNSMC as SamplerClass
+        else:
+            raise ValueError(f"Unknown sampler type: {sampler_type}")
+        return SamplerClass
+
     def init_sampler(
         self,
         sampler_type: str,
@@ -202,25 +227,7 @@ class Poppy:
         sampler_type : str
             The type of sampler to use. Options are 'importance', 'emcee', or 'smc'.
         """
-        if sampler_type == "importance":
-            from .samplers.importance import ImportanceSampler as SamplerClass
-
-            if self.periodic_parameters:
-                raise ValueError(
-                    "Importance sampling does not support periodic parameters."
-                )
-        elif sampler_type == "emcee":
-            from .samplers.mcmc import Emcee as SamplerClass
-        elif sampler_type == "emcee_smc":
-            from .samplers.smc.emcee import EmceeSMC as SamplerClass
-        elif sampler_type == "emcee_psmc":
-            from .samplers.smc.emcee import EmceePSMC as SamplerClass
-        elif sampler_type == "minipcn":
-            from .samplers.mcmc import MiniPCN as SamplerClass
-        elif sampler_type in ["smc", "minipcn_smc"]:
-            from .samplers.smc.minipcn import MiniPCNSMC as SamplerClass
-        else:
-            raise ValueError
+        SamplerClass = self.get_sampler_class(sampler_type)
 
         preconditioning = preconditioning.lower() if preconditioning else None
 
@@ -275,7 +282,6 @@ class Poppy:
         return_history: bool = False,
         preconditioning: str = None,
         preconditioning_kwargs: dict = None,
-        sampler_kwargs: dict = None,
         **kwargs,
     ) -> Samples:
         """Draw samples from the posterior distribution.
@@ -290,7 +296,20 @@ class Poppy:
         samples : Samples
             Samples object contain samples and their corresponding weights.
         """
-        sampler_kwargs = sampler_kwargs or {}
+        SamplerClass = self.get_sampler_class(sampler)
+        # Determine sampler initialization parameters
+        # and remove them from kwargs
+        sampler_init_kwargs = signature(SamplerClass.__init__).parameters
+        sampler_kwargs = {
+            k: v
+            for k, v in kwargs.items()
+            if k in sampler_init_kwargs and k != "self"
+        }
+        kwargs = {
+            k: v
+            for k, v in kwargs.items()
+            if k not in sampler_init_kwargs or k == "self"
+        }
 
         self._sampler = self.init_sampler(
             sampler,

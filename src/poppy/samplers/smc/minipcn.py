@@ -23,12 +23,13 @@ class MiniPCNSMC(NumpySMCSampler):
         adaptive: bool = False,
         target_efficiency: float = 0.5,
         n_final_samples: int | None = None,
-        minipcn_kwargs: dict | None = None,
+        sampler_kwargs: dict | None = None,
         rng: np.random.Generator | None = None,
     ):
-        self.minipcn_kwargs = minipcn_kwargs or {}
-        self.minipcn_kwargs.setdefault("n_steps", 5 * self.dims)
-        self.minipcn_kwargs.setdefault("target_acceptance_rate", 0.234)
+        self.sampler_kwargs = sampler_kwargs or {}
+        self.sampler_kwargs.setdefault("n_steps", 5 * self.dims)
+        self.sampler_kwargs.setdefault("target_acceptance_rate", 0.234)
+        self.sampler_kwargs.setdefault("step_fn", "tpcn")
         self.rng = rng or np.random.default_rng()
         return super().sample(
             n_samples,
@@ -40,16 +41,15 @@ class MiniPCNSMC(NumpySMCSampler):
 
     def mutate(self, particles, beta):
         from minipcn import Sampler
-        from minipcn.step import TPCNStep
 
         log_prob_fn = partial(self.log_prob, beta=beta)
 
         sampler = Sampler(
             log_prob_fn=log_prob_fn,
-            step_fn=TPCNStep(self.dims, rng=self.rng),
+            step_fn=self.sampler_kwargs["step_fn"],
             rng=self.rng,
             dims=self.dims,
-            target_acceptance_rate=self.minipcn_kwargs[
+            target_acceptance_rate=self.sampler_kwargs[
                 "target_acceptance_rate"
             ],
         )
@@ -57,7 +57,7 @@ class MiniPCNSMC(NumpySMCSampler):
         z = to_numpy(self.fit_preconditioning_transform(particles.x))
         chain, history = sampler.sample(
             z,
-            n_steps=self.minipcn_kwargs["n_steps"],
+            n_steps=self.sampler_kwargs["n_steps"],
         )
         x = self.preconditioning_transform.inverse(chain[-1])[0]
 
