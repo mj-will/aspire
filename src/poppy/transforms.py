@@ -17,13 +17,25 @@ logger = logging.getLogger(__name__)
 
 
 class BaseTransform:
-    def __init__(self, xp=None, dtype=None):
+    """Base class for data transforms.
+
+    Parameters
+    ----------
+    xp : Callable
+        The array API namespace to use (e.g., numpy, torch).
+    dtype : Any, optional
+        The data type to use for the transform. If not provided, defaults to
+        the default dtype of the array API namespace if available.
+    """
+
+    def __init__(self, xp, dtype=None):
         self.xp = xp
         if is_torch_namespace(self.xp) and dtype is None:
             dtype = self.xp.get_default_dtype()
         self.dtype = dtype
 
     def fit(self, x):
+        """Fit the transform to the data."""
         raise NotImplementedError("Subclasses must implement fit method.")
 
     def forward(self, x):
@@ -34,6 +46,8 @@ class BaseTransform:
 
 
 class IdentityTransform(BaseTransform):
+    """Identity transform that does nothing to the data."""
+
     def fit(self, x):
         return x
 
