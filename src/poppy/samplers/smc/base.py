@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from typing import Callable
 
@@ -8,7 +6,7 @@ import numpy as np
 from ...flows.base import Flow
 from ...history import SMCHistory
 from ...samples import SMCSamples
-from ...utils import effective_sample_size, to_numpy, track_calls
+from ...utils import effective_sample_size, track_calls
 from ..base import Sampler
 
 logger = logging.getLogger(__name__)
@@ -22,11 +20,20 @@ class SMCSampler(Sampler):
         log_likelihood: Callable,
         log_prior: Callable,
         dims: int,
-        flow: Flow,
+        prior_flow: Flow,
         xp: Callable,
         parameters: list[str] | None = None,
+        preconditioning_transform: Callable | None = None,
     ):
-        super().__init__(log_likelihood, log_prior, dims, flow, xp, parameters)
+        super().__init__(
+            log_likelihood=log_likelihood,
+            log_prior=log_prior,
+            dims=dims,
+            prior_flow=prior_flow,
+            xp=xp,
+            parameters=parameters,
+            preconditioning_transform=preconditioning_transform,
+        )
 
     @track_calls
     def sample(
@@ -37,7 +44,8 @@ class SMCSampler(Sampler):
         target_efficiency: float = 0.5,
         n_final_samples: int | None = None,
     ):
-        x, log_q = self.flow.sample_and_log_prob(n_samples)
+        x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
+        self.preconditioning_transform.fit(x)
         self.beta = 0.0
         samples = SMCSamples(x, xp=self.xp, log_q=log_q, beta=self.beta)
         samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
@@ -70,7 +78,7 @@ class SMCSampler(Sampler):
                 beta_max = 1.0
                 ess = effective_sample_size(samples.log_weights(beta_max))
                 eff = ess / len(samples.x)
-                if np.isnan(eff):
+                if self.xp.isnan(eff):
                     raise ValueError("Effective sample size is NaN")
                 beta = beta_max
                 while True:
@@ -124,60 +132,41 @@ class SMCSampler(Sampler):
     def mutate(self, particles):
         raise NotImplementedError
 
-    def log_prob(self, x, beta=None):
+    def log_prob(self, z, beta=None):
+        x, log_abs_det_jacobian = self.preconditioning_transform.inverse(z)
         samples = SMCSamples(x, xp=self.xp)
-        log_q = self.flow.log_prob(samples.x)
+        log_q = self.prior_flow.log_prob(samples.x)
         samples.log_q = samples.array_to_namespace(log_q)
         samples.log_prior = self.log_prior(samples)
         samples.log_likelihood = self.log_likelihood(samples)
-        log_prob = samples.log_p_t(beta=beta).flatten()
+        log_prob = samples.log_p_t(
+            beta=beta
+        ).flatten() + samples.array_to_namespace(log_abs_det_jacobian)
         log_prob[self.xp.isnan(log_prob)] = -self.xp.inf
         return log_prob
 
 
-class PreconditionedSMC(SMCSampler):
+class NumpySMCSampler(SMCSampler):
     def __init__(
         self,
-        log_likelihood: Callable,
-        log_prior: Callable,
-        dims: int,
-        flow: Flow,
-        xp: Callable,
-        parameters: list[str] | None = None,
-        **kwargs,
+        log_likelihood,
+        log_prior,
+        dims,
+        prior_flow,
+        xp,
+        parameters=None,
+        preconditioning_transform=None,
     ):
-        super().__init__(log_likelihood, log_prior, dims, flow, xp, parameters)
-        self.pflow = None
-        self.pflow_kwargs = kwargs
-
-    def log_prob(self, z, beta=None):
-        x, log_j_flow = self.pflow.inverse(z)
-        samples = SMCSamples(x, xp=self.xp)
-        log_q = self.flow.log_prob(samples.x)
-        samples.log_q = samples.array_to_namespace(log_q)
-        samples.log_prior = self.log_prior(samples)
-        samples.log_likelihood = self.log_likelihood(samples)
-        # Emcee requires numpy arrays
-        log_prob = to_numpy(
-            samples.log_p_t(beta=beta) + samples.array_to_namespace(log_j_flow)
-        ).flatten()
-        log_prob[np.isnan(log_prob)] = -np.inf
-        return log_prob
-
-    def init_pflow(self):
-        FlowClass = self.flow.__class__
-        self.pflow = FlowClass(
-            dims=self.dims,
-            device=self.flow.device,
-            data_transform=self.flow.data_transform.new_instance(),
-            **self.pflow_kwargs,
+        if preconditioning_transform is not None:
+            preconditioning_transform = preconditioning_transform.new_instance(
+                xp=np
+            )
+        super().__init__(
+            log_likelihood,
+            log_prior,
+            dims,
+            prior_flow,
+            xp,
+            parameters=None,
+            preconditioning_transform=preconditioning_transform,
         )
-
-    def train_preconditioner(self, samples, **kwargs):
-        self.init_pflow()
-        self.pflow.fit(samples.x, **kwargs)
-
-    def config_dict(self, include_sample_calls=True):
-        config = super().config_dict(include_sample_calls)
-        config["preconditioner_kwargs"] = self.pflow_kwargs
-        return config

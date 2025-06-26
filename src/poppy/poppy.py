@@ -1,15 +1,18 @@
-from __future__ import annotations
-
 import logging
 import multiprocessing as mp
-from typing import Callable
+from inspect import signature
+from typing import Any, Callable
 
 import h5py
 
 from .flows import get_flow_wrapper
 from .history import History
 from .samples import Samples
-from .transforms import DataTransform
+from .transforms import (
+    CompositeTransform,
+    FlowPreconditioningTransform,
+    FlowTransform,
+)
 from .utils import recursively_save_to_h5_file
 
 logger = logging.getLogger(__name__)
@@ -153,10 +156,9 @@ class Poppy:
                 f"Unsupported flow backend: {self.flow_backend}. "
                 "Supported backends are 'zuko' and 'flowjax'."
             )
-        data_transform = DataTransform(
+        data_transform = FlowTransform(
             parameters=self.parameters,
             prior_bounds=self.prior_bounds,
-            periodic_parameters=self.periodic_parameters,
             bounded_to_unbounded=self.bounded_to_unbounded,
             bounded_transform=self.bounded_transform,
             device=self.device,
@@ -187,8 +189,8 @@ class Poppy:
         history = self.flow.fit(samples.x, **kwargs)
         return history
 
-    def init_sampler(self, sampler_type: str, **kwargs) -> Callable:
-        """Initialize the sampler for posterior sampling.
+    def get_sampler_class(self, sampler_type: str) -> Callable:
+        """Get the sampler class based on the sampler type.
 
         Parameters
         ----------
@@ -197,57 +199,159 @@ class Poppy:
         """
         if sampler_type == "importance":
             from .samplers.importance import ImportanceSampler as SamplerClass
-
-            if self.periodic_parameters:
-                raise ValueError(
-                    "Importance sampling does not support periodic parameters."
-                )
         elif sampler_type == "emcee":
             from .samplers.mcmc import Emcee as SamplerClass
         elif sampler_type == "emcee_smc":
             from .samplers.smc.emcee import EmceeSMC as SamplerClass
-        elif sampler_type == "emcee_psmc":
-            from .samplers.smc.emcee import EmceePSMC as SamplerClass
         elif sampler_type == "minipcn":
             from .samplers.mcmc import MiniPCN as SamplerClass
         elif sampler_type in ["smc", "minipcn_smc"]:
             from .samplers.smc.minipcn import MiniPCNSMC as SamplerClass
         else:
-            raise ValueError
+            raise ValueError(f"Unknown sampler type: {sampler_type}")
+        return SamplerClass
+
+    def init_sampler(
+        self,
+        sampler_type: str,
+        preconditioning: str | None = None,
+        preconditioning_kwargs: dict | None = None,
+        **kwargs,
+    ) -> Callable:
+        """Initialize the sampler for posterior sampling.
+
+        Parameters
+        ----------
+        sampler_type : str
+            The type of sampler to use. Options are 'importance', 'emcee', or 'smc'.
+        """
+        SamplerClass = self.get_sampler_class(sampler_type)
+
+        if sampler_type != "importance" and preconditioning is None:
+            preconditioning = "default"
+
+        preconditioning = preconditioning.lower() if preconditioning else None
+
+        if preconditioning is None or preconditioning == "none":
+            transform = None
+        elif preconditioning in ["standard", "default"]:
+            preconditioning_kwargs = preconditioning_kwargs or {}
+            preconditioning_kwargs.setdefault("affine_transform", False)
+            transform = CompositeTransform(
+                parameters=self.parameters,
+                prior_bounds=self.prior_bounds,
+                periodic_parameters=self.periodic_parameters,
+                bounded_to_unbounded=False,
+                xp=self.xp,
+                device=self.device,
+                **preconditioning_kwargs,
+            )
+        elif preconditioning == "flow":
+            preconditioning_kwargs = preconditioning_kwargs or {}
+            preconditioning_kwargs.setdefault("affine_transform", False)
+            transform = FlowPreconditioningTransform(
+                parameters=self.parameters,
+                flow_backend=self.flow_backend,
+                flow_kwargs=self.flow_kwargs,
+                flow_matching=self.flow_matching,
+                periodic_parameters=self.periodic_parameters,
+                bounded_to_unbounded=self.bounded_to_unbounded,
+                prior_bounds=self.prior_bounds,
+                xp=self.xp,
+                device=self.device,
+                **preconditioning_kwargs,
+            )
+        else:
+            raise ValueError(f"Unknown preconditioning: {preconditioning}")
 
         sampler = SamplerClass(
             log_likelihood=self.log_likelihood,
             log_prior=self.log_prior,
             dims=self.dims,
-            flow=self.flow,
+            prior_flow=self.flow,
             xp=self.xp,
+            preconditioning_transform=transform,
             **kwargs,
         )
         return sampler
 
     def sample_posterior(
         self,
-        n_samples: int = 1,
+        n_samples: int = 1000,
         sampler: str = "importance",
-        xp=None,
+        xp: Any = None,
         return_history: bool = False,
-        sampler_kwargs: dict = None,
+        preconditioning: str | None = None,
+        preconditioning_kwargs: dict | None = None,
         **kwargs,
     ) -> Samples:
         """Draw samples from the posterior distribution.
+
+        If using a sampler that calls an external sampler, e.g.
+        :code:`minipcn` then keyword arguments for this sampler should be
+        specified in :code:`sampler_kwargs`. For example:
+
+        .. code-block:: python
+
+            poppy = Poppy(...)
+            poppy.sample_posterior(
+                n_samples=1000,
+                sampler="minipcn_smc",
+                adaptive=True,
+                sampler_kwargs=dict(
+                    n_steps=100,
+                    step_fn="tpcn",
+                )
+            )
 
         Parameters
         ----------
         n_samples : int
             The number of sample to draw.
+        sampler: str
+            Sampling algorithm to use for drawing the posterior samples.
+        xp: Any
+            Array API for the final samples.
+        return_history : bool
+            Whether to return the history of the sampler.
+        preconditioning: str
+            Type of preconditioning to apply in the sampler. Options are
+            'default', 'flow', or 'none'. If not specified, the default
+            will depend on the sampler being used. The importance sampler
+            will default to 'none' and the other samplers to 'default'
+        preconditioning_kwargs: dict
+            Keyword arguments to pass to the preconditioning transform.
+        kwargs : dict
+            Keyword arguments to pass to the sampler. These are passed
+            automatically to the init method of the sampler or to the sample
+            method.
 
         Returns
         -------
         samples : Samples
             Samples object contain samples and their corresponding weights.
         """
-        sampler_kwargs = sampler_kwargs or {}
-        self._sampler = self.init_sampler(sampler, **sampler_kwargs)
+        SamplerClass = self.get_sampler_class(sampler)
+        # Determine sampler initialization parameters
+        # and remove them from kwargs
+        sampler_init_kwargs = signature(SamplerClass.__init__).parameters
+        sampler_kwargs = {
+            k: v
+            for k, v in kwargs.items()
+            if k in sampler_init_kwargs and k != "self"
+        }
+        kwargs = {
+            k: v
+            for k, v in kwargs.items()
+            if k not in sampler_init_kwargs or k == "self"
+        }
+
+        self._sampler = self.init_sampler(
+            sampler,
+            preconditioning=preconditioning,
+            preconditioning_kwargs=preconditioning_kwargs,
+            **sampler_kwargs,
+        )
         samples = self._sampler.sample(n_samples, **kwargs)
         if xp is not None:
             samples = samples.to_namespace(xp)

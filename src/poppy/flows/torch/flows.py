@@ -3,7 +3,7 @@ import logging
 import torch
 import tqdm
 import zuko
-from array_api_compat import is_torch_array
+from array_api_compat import is_numpy_namespace, is_torch_array
 from array_api_compat import torch as torch_api
 
 from ...history import FlowHistory
@@ -193,6 +193,11 @@ class ZukoFlow(BaseTorchFlow):
         )
         x_prime, log_j_rescale = self.rescale(x)
         z, log_abs_det_jacobian = self._flow().transform.call_and_ladj(x_prime)
+        if is_numpy_namespace(xp):
+            # Convert to numpy namespace if needed
+            z = z.detach().numpy()
+            log_abs_det_jacobian = log_abs_det_jacobian.detach().numpy()
+            log_j_rescale = log_j_rescale.detach().numpy()
         return xp.asarray(z), xp.asarray(log_abs_det_jacobian + log_j_rescale)
 
     def inverse(self, z, xp=torch_api):
@@ -204,6 +209,11 @@ class ZukoFlow(BaseTorchFlow):
                 self._flow().transform.inv.call_and_ladj(z)
             )
         x, log_j_rescale = self.inverse_rescale(x_prime)
+        if is_numpy_namespace(xp):
+            # Convert to numpy namespace if needed
+            x = x.detach().numpy()
+            log_abs_det_jacobian = log_abs_det_jacobian.detach().numpy()
+            log_j_rescale = log_j_rescale.detach().numpy()
         return xp.asarray(x), xp.asarray(log_j_rescale + log_abs_det_jacobian)
 
 

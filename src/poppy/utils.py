@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING, Any
 import array_api_compat.numpy as np
 import h5py
 import wrapt
-from array_api_compat import array_namespace, is_torch_namespace, to_device
+from array_api_compat import (
+    array_namespace,
+    is_torch_array,
+    is_torch_namespace,
+    to_device,
+)
 
 if TYPE_CHECKING:
     from multiprocessing import Pool
@@ -213,8 +218,12 @@ def copy_array(x, xp: Any = None) -> Array:
     """
     if xp is None:
         xp = array_namespace(x)
+    # torch does not play nicely since it complains about copying tensors
     if is_torch_namespace(xp):
-        return xp.clone(x)
+        if is_torch_array(x):
+            return xp.clone(x)
+        else:
+            return xp.as_tensor(x)
     else:
         try:
             return xp.copy(x)
@@ -264,6 +273,8 @@ def encode_for_hdf5(value: Any) -> Any:
     - None is replaced with "__none__"
     - Empty dictionaries are replaced with "__empty_dict__"
     """
+    if isinstance(value, CallHistory):
+        return value.to_dict(list_to_dict=True)
     if isinstance(value, np.ndarray):
         return value
     if isinstance(value, (int, float, str)):
@@ -372,6 +383,27 @@ class CallHistory:
 
     args: list[tuple]
     kwargs: list[dict]
+
+    def to_dict(self, list_to_dict: bool = False) -> dict[str, Any]:
+        """Convert the call history to a dictionary.
+
+        Parameters
+        ----------
+        list_to_dict : bool
+            If True, convert the lists of args and kwargs to dictionaries
+            with string keys. If False, keep them as lists. This is useful
+            when encoding the history for HDF5.
+        """
+        if list_to_dict:
+            return {
+                "args": {str(i): v for i, v in enumerate(self.args)},
+                "kwargs": {str(i): v for i, v in enumerate(self.kwargs)},
+            }
+        else:
+            return {
+                "args": [list(arg) for arg in self.args],
+                "kwargs": [dict(kwarg) for kwarg in self.kwargs],
+            }
 
 
 def track_calls(wrapped=None):

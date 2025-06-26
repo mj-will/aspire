@@ -1,7 +1,7 @@
 from typing import Any
 
 from ..history import FlowHistory
-from ..transforms import DataTransform
+from ..transforms import BaseTransform
 
 
 class Flow:
@@ -9,7 +9,7 @@ class Flow:
         self,
         dims: int,
         device: Any,
-        data_transform: DataTransform = None,
+        data_transform: BaseTransform = None,
     ):
         self.dims = dims
         self.device = device

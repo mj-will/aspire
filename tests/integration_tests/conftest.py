@@ -106,17 +106,38 @@ def log_prior(dims, xp):
 
 
 @pytest.fixture(
-    params=["importance", "minipcn_smc", "emcee_smc", "emcee_psmc"]
+    params=[
+        "importance",
+        "minipcn_smc",
+        "emcee_smc",
+        "smc",
+        "emcee",
+        "minipcn",
+    ]
 )
 def sampler_config(request):
     if request.param == "importance":
         return SamplerConfig(sampler="importance", sampler_kwargs={})
-    elif request.param == "minipcn_smc":
+    elif request.param == "emcee":
+        return SamplerConfig(
+            sampler="emcee",
+            sampler_kwargs={
+                "nsteps": 500,
+            },
+        )
+    elif request.param == "minipcn":
+        return SamplerConfig(
+            sampler="minipcn",
+            sampler_kwargs={
+                "n_steps": 500,
+            },
+        )
+    elif request.param in ["smc", "minipcn_smc"]:
         return SamplerConfig(
             sampler="minipcn_smc",
             sampler_kwargs={
                 "adaptive": True,
-                "minipcn_kwargs": {
+                "sampler_kwargs": {
                     "n_steps": 10,
                 },
             },
@@ -126,18 +147,7 @@ def sampler_config(request):
             sampler="emcee_smc",
             sampler_kwargs={
                 "adaptive": True,
-                "emcee_kwargs": {
-                    "nsteps": 10,
-                    "progress": False,
-                },
-            },
-        )
-    elif request.param == "emcee_psmc":
-        return SamplerConfig(
-            sampler="emcee_psmc",
-            sampler_kwargs={
-                "adaptive": True,
-                "emcee_kwargs": {
+                "sampler_kwargs": {
                     "nsteps": 10,
                     "progress": False,
                 },
