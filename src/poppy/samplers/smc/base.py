@@ -167,6 +167,6 @@ class NumpySMCSampler(SMCSampler):
             dims,
             prior_flow,
             xp,
-            parameters=None,
+            parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
