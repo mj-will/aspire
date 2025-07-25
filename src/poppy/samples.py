@@ -64,6 +64,7 @@ class BaseSamples:
         return self.x.shape[1] if self.x.ndim > 1 else 1
 
     def to_numpy(self):
+        logger.debug("Converting samples to numpy arrays")
         return self.__class__(
             x=to_numpy(self.x),
             parameters=self.parameters,
@@ -77,6 +78,7 @@ class BaseSamples:
         )
 
     def to_namespace(self, xp):
+        logger.debug("Converting samples to {} namespace", xp)
         return self.__class__(
             x=xp.asarray(self.x),
             parameters=self.parameters,
