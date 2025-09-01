@@ -32,7 +32,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install torch --index-url https://download.pytorch.org/whl/cpu
-        pip install -e .[test,torch,jax,minipcn,emcee]
+        pip install -e .[test,torch,jax,minipcn,emcee,blackjax]
     - name: Test with pytest
       run: |
         python -m pytest
