@@ -48,6 +48,7 @@ def initial_samples(dims, rng, likelihood_mean, likelihood_std, n_samples):
 
 @pytest.fixture
 def samples(initial_samples, xp):
+    assert initial_samples.ndim == 2
     return Samples(initial_samples, xp=xp)
 
 
@@ -80,8 +81,9 @@ def xp(samples_backend):
 
 
 @pytest.fixture
-def log_likelihood(likelihood_mean, likelihood_std, xp):
+def log_likelihood(likelihood_mean, likelihood_std, xp, dims):
     def _log_likelihood(samples):
+        assert samples.x.shape[-1] == dims
         x = xp.asarray(samples.x)
         constant = xp.log(
             xp.asarray(1 / (likelihood_std * math.sqrt(2 * math.pi)))
@@ -97,6 +99,7 @@ def log_likelihood(likelihood_mean, likelihood_std, xp):
 @pytest.fixture
 def log_prior(dims, xp):
     def _log_prior(samples):
+        assert samples.x.shape[-1] == dims
         x = xp.asarray(samples.x)
         constant = dims * xp.log(xp.asarray(1 / 10))
         val = xp.where((x >= -10) & (x <= 10), constant, -xp.inf)

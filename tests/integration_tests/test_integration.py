@@ -11,13 +11,8 @@ def test_integration_zuko(
     parameters,
     prior_bounds,
     bounded_to_unbounded,
-    samples_backend,
     sampler_config,
 ):
-    if samples_backend == "jax":
-        pytest.xfail(
-            reason="Converting jax arrays to PyTorch tensors is not supported. See https://github.com/pytorch/pytorch/issues/32868."
-        )
     if sampler_config.sampler == "blackjax_smc":
         pytest.xfail(reason="BlackJAX requires JAX arrays.")
 
