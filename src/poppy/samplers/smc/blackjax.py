@@ -2,7 +2,7 @@ import logging
 from functools import partial
 
 from ...samples import SMCSamples
-from ...utils import to_numpy, track_calls
+from ...utils import asarray, to_numpy, track_calls
 from .base import SMCSampler
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class BlackJAXSMC(SMCSampler):
         """Log probability function compatible with BlackJAX."""
         # Convert to original xp format for computation
         if hasattr(x, "__array__"):
-            x_original = self.xp.asarray(x)
+            x_original = asarray(x, self.xp)
         else:
             x_original = x
 
