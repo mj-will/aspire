@@ -213,9 +213,7 @@ def asarray(x, xp: Any = None, **kwargs) -> Array:
         Additional keyword arguments to pass to xp.asarray.
     """
     if is_jax_array(x) and is_torch_namespace(xp):
-        import jax
-
-        return xp.utils.dlpack.from_dlpack(jax.dlpack.to_dlpack(x))
+        return xp.utils.dlpack.from_dlpack(x)
     else:
         return xp.asarray(x, **kwargs)
 
