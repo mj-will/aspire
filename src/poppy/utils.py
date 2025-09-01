@@ -12,6 +12,7 @@ import h5py
 import wrapt
 from array_api_compat import (
     array_namespace,
+    is_jax_array,
     is_torch_array,
     is_torch_namespace,
     to_device,
@@ -198,6 +199,27 @@ def to_numpy(x: Array, **kwargs) -> np.ndarray:
         return np.asarray(x, **kwargs)
 
 
+def asarray(x, xp: Any = None, **kwargs) -> Array:
+    """Convert an array to the specified array API.
+
+    Parameters
+    ----------
+    x : Array
+        The array to convert.
+    xp : Any
+        The array API to use for the conversion. If None, the array API
+        is inferred from the input array.
+    kwargs : dict
+        Additional keyword arguments to pass to xp.asarray.
+    """
+    if is_jax_array(x) and is_torch_namespace(xp):
+        import jax
+
+        return xp.utils.dlpack.from_dlpack(jax.dlpack.to_dlpack(x))
+    else:
+        return xp.asarray(x, **kwargs)
+
+
 def copy_array(x, xp: Any = None) -> Array:
     """Copy an array based on the array API being used.
 
@@ -227,7 +249,7 @@ def copy_array(x, xp: Any = None) -> Array:
     else:
         try:
             return xp.copy(x)
-        except AttributeError:
+        except (AttributeError, TypeError):
             # Fallback for array APIs that do not have a copy method
             return xp.array(x, copy=True)
 
