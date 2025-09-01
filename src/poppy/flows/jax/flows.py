@@ -71,8 +71,8 @@ class FlowJax(Flow):
     def sample(self, n_samples: int, xp: Callable = jnp):
         self.key, subkey = jrandom.split(self.key)
         x_prime = self._flow.sample(subkey, (n_samples,))
-        x, log_abs_det_jacobian = self.inverse_rescale(x_prime)
-        return xp.asarray(x), xp.asarray(log_abs_det_jacobian)
+        x = self.inverse_rescale(x_prime)[0]
+        return xp.asarray(x)
 
     def sample_and_log_prob(self, n_samples: int, xp: Callable = jnp):
         self.key, subkey = jrandom.split(self.key)
