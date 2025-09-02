@@ -1,7 +1,7 @@
 import logging
 from typing import Callable
 
-import numpy as np
+import array_api_compat.numpy as np
 
 from ...flows.base import Flow
 from ...history import SMCHistory
