@@ -6,7 +6,12 @@ import numpy as np
 from ...flows.base import Flow
 from ...history import SMCHistory
 from ...samples import SMCSamples
-from ...utils import effective_sample_size, track_calls
+from ...utils import (
+    asarray,
+    effective_sample_size,
+    track_calls,
+    update_at_indices,
+)
 from ..base import Sampler
 
 logger = logging.getLogger(__name__)
@@ -122,7 +127,7 @@ class SMCSampler(Sampler):
                 break
 
         samples.log_evidence = samples.xp.sum(
-            self.xp.asarray(self.history.log_norm_ratio)
+            asarray(self.history.log_norm_ratio, self.xp)
         )
         samples.log_evidence_error = samples.xp.nan
         final_samples = samples.to_standard_samples()
@@ -142,7 +147,10 @@ class SMCSampler(Sampler):
         log_prob = samples.log_p_t(
             beta=beta
         ).flatten() + samples.array_to_namespace(log_abs_det_jacobian)
-        log_prob[self.xp.isnan(log_prob)] = -self.xp.inf
+
+        log_prob = update_at_indices(
+            log_prob, self.xp.isnan(log_prob), -self.xp.inf
+        )
         return log_prob
 
 
@@ -167,6 +175,6 @@ class NumpySMCSampler(SMCSampler):
             dims,
             prior_flow,
             xp,
-            parameters=None,
+            parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )

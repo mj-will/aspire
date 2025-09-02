@@ -307,11 +307,11 @@ class PeriodicTransform(BaseTransform):
 
     def forward(self, x):
         y = self.lower + (x - self.lower) % self._width
-        return y, self.xp.zeros(y.shape[0], device=y.device)
+        return y, self.xp.zeros(y.shape[0], device=get_device(y))
 
     def inverse(self, y):
         x = self.lower + (y - self.lower) % self._width
-        return x, self.xp.zeros(x.shape[0], device=x.device)
+        return x, self.xp.zeros(x.shape[0], device=get_device(x))
 
 
 class ProbitTransform(BaseTransform):
@@ -393,13 +393,13 @@ class AffineTransform(BaseTransform):
     def forward(self, x):
         y = (x - self._mean) / self._std
         return y, self.log_abs_det_jacobian * self.xp.ones(
-            y.shape[0], device=y.device
+            y.shape[0], device=get_device(y)
         )
 
     def inverse(self, y):
         x = y * self._std + self._mean
         return x, -self.log_abs_det_jacobian * self.xp.ones(
-            y.shape[0], device=y.device
+            y.shape[0], device=get_device(y)
         )
 
 

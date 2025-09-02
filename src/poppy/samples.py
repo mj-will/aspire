@@ -9,14 +9,13 @@ from typing import Any, Callable
 import numpy as np
 from array_api_compat import (
     array_namespace,
-    is_jax_array,
     is_numpy_namespace,
     to_device,
 )
 from array_api_compat import device as api_device
 from array_api_compat.common._typing import Array
 
-from .utils import logsumexp, recursively_save_to_h5_file, to_numpy
+from .utils import asarray, logsumexp, recursively_save_to_h5_file, to_numpy
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +63,7 @@ class BaseSamples:
         return self.x.shape[1] if self.x.ndim > 1 else 1
 
     def to_numpy(self):
+        logger.debug("Converting samples to numpy arrays")
         return self.__class__(
             x=to_numpy(self.x),
             parameters=self.parameters,
@@ -77,23 +77,22 @@ class BaseSamples:
         )
 
     def to_namespace(self, xp):
+        logger.debug("Converting samples to {} namespace", xp)
         return self.__class__(
-            x=xp.asarray(self.x),
+            x=asarray(self.x, xp),
             parameters=self.parameters,
-            log_likelihood=xp.asarray(self.log_likelihood)
+            log_likelihood=asarray(self.log_likelihood, xp)
             if self.log_likelihood is not None
             else None,
-            log_prior=xp.asarray(self.log_prior)
+            log_prior=asarray(self.log_prior, xp)
             if self.log_prior is not None
             else None,
-            log_q=xp.asarray(self.log_q) if self.log_q is not None else None,
+            log_q=asarray(self.log_q, xp) if self.log_q is not None else None,
         )
 
     def array_to_namespace(self, x):
         """Convert an array to the same namespace as the samples"""
-        if is_numpy_namespace(self.xp) and not is_jax_array(x):
-            x = to_device(x, "cpu")
-        x = self.xp.asarray(x)
+        x = asarray(x, self.xp)
         if self.device:
             x = to_device(x, self.device)
         return x
@@ -197,7 +196,7 @@ class Samples(BaseSamples):
     def compute_weights(self):
         """Compute the posterior weights."""
         self.log_w = self.log_likelihood + self.log_prior - self.log_q
-        self.log_evidence = self.xp.asarray(logsumexp(self.log_w)) - math.log(
+        self.log_evidence = asarray(logsumexp(self.log_w), self.xp) - math.log(
             len(self.x)
         )
         self.weights = self.xp.exp(self.log_w)
@@ -211,7 +210,7 @@ class Samples(BaseSamples):
         )
         log_w = self.log_w - self.xp.max(self.log_w)
         self.effective_sample_size = self.xp.exp(
-            self.xp.asarray(logsumexp(log_w) * 2 - logsumexp(log_w * 2))
+            asarray(logsumexp(log_w) * 2 - logsumexp(log_w * 2), self.xp)
         )
 
     @property
@@ -221,8 +220,8 @@ class Samples(BaseSamples):
     def rejection_sample(self, rng=None):
         if rng is None:
             rng = np.random.default_rng()
-        log_u = self.xp.asarray(
-            np.log(rng.uniform(size=len(self.x))), device=self.device
+        log_u = asarray(
+            np.log(rng.uniform(size=len(self.x))), self.xp, device=self.device
         )
         log_w = self.log_w - self.xp.max(self.log_w)
         accept = log_w > log_u
@@ -274,19 +273,19 @@ class Samples(BaseSamples):
 
     def to_namespace(self, xp):
         return self.__class__(
-            x=xp.asarray(self.x),
+            x=asarray(self.x, xp),
             parameters=self.parameters,
-            log_likelihood=xp.asarray(self.log_likelihood)
+            log_likelihood=asarray(self.log_likelihood, xp)
             if self.log_likelihood is not None
             else None,
-            log_prior=xp.asarray(self.log_prior)
+            log_prior=asarray(self.log_prior, xp)
             if self.log_prior is not None
             else None,
-            log_q=xp.asarray(self.log_q) if self.log_q is not None else None,
-            log_evidence=xp.asarray(self.log_evidence)
+            log_q=asarray(self.log_q, xp) if self.log_q is not None else None,
+            log_evidence=asarray(self.log_evidence, xp)
             if self.log_evidence is not None
             else None,
-            log_evidence_error=xp.asarray(self.log_evidence_error)
+            log_evidence_error=asarray(self.log_evidence_error, xp)
             if self.log_evidence_error is not None
             else None,
         )

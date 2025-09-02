@@ -40,6 +40,9 @@ minipcn = [
 emcee = [
     "emcee",
 ]
+blackjax = [
+    "blackjax",
+]
 test = [
     "pytest",
     "pytest-requires",
