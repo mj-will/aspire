@@ -253,6 +253,20 @@ def copy_array(x, xp: Any = None) -> Array:
 
 
 def effective_sample_size(log_w: Array) -> float:
+    """Compute the effective sample size from log weights.
+
+    Uses Kish's effective sample size formula.
+
+    Parameters
+    ----------
+    log_w : Array
+        The log weights.
+
+    Returns
+    -------
+    float
+        The effective sample size.
+    """
     xp = array_namespace(log_w)
     return xp.exp(xp.asarray(logsumexp(log_w) * 2 - logsumexp(log_w * 2)))
 
