@@ -28,10 +28,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def configure_logger(log_level: str | int = "INFO") -> logging.Logger:
+def configure_logger(
+    log_level: str | int = "INFO",
+    additional_loggers: list[str] = None,
+    include_poppy_loggers: bool = True,
+) -> logging.Logger:
     """Configure the logger.
 
     Adds a stream handler to the logger.
+
+    Parameters
+    ----------
+    log_level : str or int, optional
+        The log level to use. Defaults to "INFO".
+    additional_loggers : list of str, optional
+        Additional loggers to configure. Defaults to None.
+    include_poppy_loggers : bool, optional
+        Whether to include all loggers that start with "poppy_" or "poppy-".
+        Defaults to True.
+
+    Returns
+    -------
+    logging.Logger
+        The configured logger.
     """
     logger = logging.getLogger("poppy")
     logger.setLevel(log_level)
@@ -42,6 +61,22 @@ def configure_logger(log_level: str | int = "INFO") -> logging.Logger:
     )
     ch.setFormatter(formatter)
     logger.addHandler(ch)
+
+    additional_loggers = additional_loggers or []
+    for name in logger.manager.loggerDict:
+        if include_poppy_loggers and (
+            name.startswith("poppy_") or name.startswith("poppy-")
+        ):
+            additional_loggers.append(name)
+
+    for name in additional_loggers:
+        dep_logger = logging.getLogger(name)
+        dep_logger.setLevel(log_level)
+        dep_logger.handlers.clear()
+        for handler in logger.handlers:
+            dep_logger.addHandler(handler)
+        dep_logger.propagate = False
+
     return logger
 
 
