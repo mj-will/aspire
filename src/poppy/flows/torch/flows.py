@@ -1,10 +1,11 @@
 import logging
+from typing import Callable
 
+import array_api_compat.torch as torch_api
 import torch
 import tqdm
 import zuko
 from array_api_compat import is_numpy_namespace, is_torch_array
-from array_api_compat import torch as torch_api
 
 from ...history import FlowHistory
 from ..base import Flow
@@ -50,7 +51,7 @@ class ZukoFlow(BaseTorchFlow):
     def __init__(
         self,
         dims,
-        flow_class: str = "MAF",
+        flow_class: str | Callable = "MAF",
         data_transform=None,
         seed=1234,
         device: str = "cpu",
@@ -62,7 +63,11 @@ class ZukoFlow(BaseTorchFlow):
             data_transform=data_transform,
             seed=seed,
         )
-        FlowClass = getattr(zuko.flows, flow_class)
+
+        if isinstance(flow_class, str):
+            FlowClass = getattr(zuko.flows, flow_class)
+        else:
+            FlowClass = flow_class
 
         # Ints are some times passed as strings, so we convert them
         if hidden_features := kwargs.pop("hidden_features", None):

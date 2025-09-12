@@ -147,15 +147,10 @@ class Poppy:
         return samples
 
     def init_flow(self):
-        if self.flow_backend == "zuko":
-            import array_api_compat.torch as xp
-        elif self.flow_backend == "flowjax":
-            import jax.numpy as xp
-        else:
-            raise ValueError(
-                f"Unsupported flow backend: {self.flow_backend}. "
-                "Supported backends are 'zuko' and 'flowjax'."
-            )
+        FlowClass, xp = get_flow_wrapper(
+            backend=self.flow_backend, flow_matching=self.flow_matching
+        )
+
         data_transform = FlowTransform(
             parameters=self.parameters,
             prior_bounds=self.prior_bounds,
@@ -165,11 +160,14 @@ class Poppy:
             xp=xp,
             eps=self.eps,
         )
-        FlowClass = get_flow_wrapper(
-            backend=self.flow_backend, flow_matching=self.flow_matching
-        )
+
+        # Check if FlowClass takes `parameters` as an argument
+        flow_init_params = signature(FlowClass.__init__).parameters
+        if "parameters" in flow_init_params:
+            self.flow_kwargs["parameters"] = self.parameters.copy()
 
         logger.info(f"Configuring {FlowClass} with kwargs: {self.flow_kwargs}")
+
         self._flow = FlowClass(
             dims=self.dims,
             device=self.device,
