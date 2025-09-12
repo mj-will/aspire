@@ -86,6 +86,7 @@ class ZukoFlow(BaseTorchFlow):
         lr: float = 1e-3,
         batch_size: int = 500,
         validation_fraction: float = 0.2,
+        clip_grad: float | None = None,
         lr_annealing: bool = False,
     ):
         from ...history import FlowHistory
@@ -149,25 +150,35 @@ class ZukoFlow(BaseTorchFlow):
             )
         history = FlowHistory()
 
-        for _ in tqdm.tqdm(range(n_epochs)):
-            self.flow.train()
-            loss_epoch = 0.0
-            for (x_batch,) in dataset:
-                loss = self.loss_fn(x_batch)
-                optimizer.zero_grad()
-                loss.backward()
-                # torch.nn.utils.clip_grad_norm_(flow.parameters(), 2.0)
-                optimizer.step()
-                loss_epoch += loss.item()
-            if lr_annealing:
-                scheduler.step()
-            history.training_loss.append(loss_epoch / len(dataset))
-            self.flow.eval()
-            val_loss = 0.0
-            for (x_batch,) in val_dataset:
-                with torch.no_grad():
-                    val_loss += self.loss_fn(x_batch).item()
-            history.validation_loss.append(val_loss / len(val_dataset))
+        with tqdm.tqdm(range(n_epochs), desc="Epochs") as pbar:
+            for _ in pbar:
+                self.flow.train()
+                loss_epoch = 0.0
+                for (x_batch,) in dataset:
+                    loss = self.loss_fn(x_batch)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    if clip_grad is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.flow.parameters(), clip_grad
+                        )
+                    optimizer.step()
+                    loss_epoch += loss.item()
+                if lr_annealing:
+                    scheduler.step()
+                avg_train_loss = loss_epoch / len(dataset)
+                history.training_loss.append(avg_train_loss)
+                self.flow.eval()
+                val_loss = 0.0
+                for (x_batch,) in val_dataset:
+                    with torch.no_grad():
+                        val_loss += self.loss_fn(x_batch).item()
+                avg_val_loss = val_loss / len(val_dataset)
+                history.validation_loss.append(avg_val_loss)
+                pbar.set_postfix(
+                    train_loss=f"{avg_train_loss:.4f}",
+                    val_loss=f"{avg_val_loss:.4f}",
+                )
         self.flow.eval()
         return history
 
