@@ -19,8 +19,8 @@ class MiniPCNSMC(NumpySMCSampler):
     def sample(
         self,
         n_samples: int,
-        n_steps: int = 5,
-        adaptive: bool = False,
+        n_steps: int = None,
+        adaptive: bool = True,
         target_efficiency: float = 0.5,
         n_final_samples: int | None = None,
         sampler_kwargs: dict | None = None,
