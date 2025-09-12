@@ -1,7 +1,9 @@
 import copy
 
 
-def plot_comparison(*samples, per_samples_kwargs=None, labels=None, **kwargs):
+def plot_comparison(
+    *samples, parameters=None, per_samples_kwargs=None, labels=None, **kwargs
+):
     """
     Plot a comparison of multiple samples.
     """
@@ -26,7 +28,7 @@ def plot_comparison(*samples, per_samples_kwargs=None, labels=None, **kwargs):
         kwds["color"] = color
         kwds["hist_kwargs"]["color"] = color
         kwds.update(per_samples_kwargs[i])
-        fig = sample.plot_corner(fig=fig, **kwds)
+        fig = sample.plot_corner(fig=fig, parameters=parameters, **kwds)
 
     if labels:
         fig.legend(

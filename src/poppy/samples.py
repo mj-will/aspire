@@ -115,12 +115,19 @@ class BaseSamples:
 
         return pd.DataFrame(self.to_dict(flat=flat))
 
-    def plot_corner(self, **kwargs):
+    def plot_corner(self, parameters: list[str] | None = None, **kwargs):
         import corner
 
         kwargs = copy.deepcopy(kwargs)
         kwargs.setdefault("labels", self.parameters)
-        fig = corner.corner(to_numpy(self.x), **kwargs)
+
+        if parameters is not None:
+            indices = [self.parameters.index(p) for p in parameters]
+            kwargs["labels"] = parameters
+            x = self.x[:, indices] if self.x.ndim > 1 else self.x[indices]
+        else:
+            x = self.x
+        fig = corner.corner(to_numpy(x), **kwargs)
         return fig
 
     def __str__(self):
