@@ -1,9 +1,10 @@
 import logging
 import math
-from typing import Any
+from typing import Any, Callable
 
 from array_api_compat import device as get_device
 from array_api_compat import is_torch_namespace
+from array_api_compat.common._typing import Array
 from scipy.special import erf, erfinv
 
 from .flows import get_flow_wrapper
@@ -60,6 +61,34 @@ class IdentityTransform(BaseTransform):
 
 
 class CompositeTransform(BaseTransform):
+    """Transform that combines multiple transformations.
+
+    Parameters
+    ----------
+    parameters : list[int]
+        List of parameter indices to apply the transform to.
+    periodic_parameters : list[int], optional
+        List of parameter indices that are periodic. Default is None.
+    prior_bounds : list[tuple[float, float]], optional
+        List of (lower, upper) bounds for each parameter. Default is None.
+        Required if using bounded or periodic transforms.
+    bounded_to_unbounded : bool, optional
+        Whether to apply a bounded to unbounded transform. Default is True.
+    bounded_transform : str, optional
+        Type of bounded transform to use ('probit' or 'logit'). Default is 'probit'.
+    affine_transform : bool, optional
+        Whether to apply an affine transform after other transforms. Default is True.
+    device : Any, optional
+        Device to use for computations (e.g., 'cpu', 'cuda'). Default is None.
+    xp : Callable, optional
+        The array API namespace to use (e.g., numpy, torch). Default is None.
+    eps : float, optional
+        Small value to avoid numerical issues in bounded transforms. Default is 1e-6.
+    dtype : Any, optional
+        The data type to use for the transform. If not provided, defaults to
+        the default dtype of the array API namespace if available.
+    """
+
     def __init__(
         self,
         parameters: list[int],
@@ -68,8 +97,8 @@ class CompositeTransform(BaseTransform):
         bounded_to_unbounded: bool = True,
         bounded_transform: str = "probit",
         affine_transform: bool = True,
-        device=None,
-        xp: None = None,
+        device: Any = None,
+        xp: Callable = None,
         eps: float = 1e-6,
         dtype: Any = None,
     ):
@@ -235,7 +264,15 @@ class CompositeTransform(BaseTransform):
 
         return x, log_abs_det_jacobian
 
-    def new_instance(self, xp=None):
+    def new_instance(self, xp: Any = None):
+        """Create a new instance of the transform with the same configuration.
+
+        Parameters
+        ----------
+        xp : Callable, optional
+            The array API namespace to use (e.g., numpy, torch). If None, uses
+            the same as the current instance.
+        """
         return self.__class__(
             parameters=self.parameters,
             periodic_parameters=self.periodic_parameters,
@@ -249,9 +286,11 @@ class CompositeTransform(BaseTransform):
 
 
 class FlowTransform(CompositeTransform):
-    """Subclass of CompositeTransform that uses a Flow for transformations.
+    """Subclass of CompositeTransform suitable for use with normalizing flows.
 
     Does not support periodic transforms.
+
+    See :code:`CompositeTransform` for parameter descriptions.
     """
 
     def __init__(
@@ -292,6 +331,23 @@ class FlowTransform(CompositeTransform):
 
 
 class PeriodicTransform(BaseTransform):
+    """Transform for periodic parameters.
+
+    Applies a modulo operation to wrap values within specified bounds.
+
+    Parameters
+    ----------
+    lower : array-like
+        Lower bounds for the periodic parameters.
+    upper : array-like
+        Upper bounds for the periodic parameters.
+    xp : Callable
+        The array API namespace to use (e.g., numpy, torch).
+    dtype : Any, optional
+        The data type to use for the transform. If not provided, defaults to
+        the default dtype of the array API namespace if available.
+    """
+
     name: str = "periodic"
     requires_prior_bounds: bool = True
 
@@ -302,7 +358,21 @@ class PeriodicTransform(BaseTransform):
         self._width = upper - lower
         self._shift = None
 
-    def fit(self, x):
+    def fit(self, x: Array) -> Array:
+        """Fit the transform to the data.
+
+        Does not fit any parameters for the periodic transform.
+
+        Parameters
+        ----------
+        x : Array
+            Input data to fit the transform to.
+
+        Returns
+        -------
+        Array
+            The transformed input data.
+        """
         return self.forward(x)[0]
 
     def forward(self, x):
