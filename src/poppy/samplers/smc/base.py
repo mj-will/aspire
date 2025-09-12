@@ -44,8 +44,8 @@ class SMCSampler(Sampler):
     def sample(
         self,
         n_samples: int,
-        n_steps: int = 5,
-        adaptive: bool = False,
+        n_steps: int = None,
+        adaptive: bool = True,
         target_efficiency: float = 0.5,
         n_final_samples: int | None = None,
     ):
@@ -69,7 +69,12 @@ class SMCSampler(Sampler):
 
         self.history = SMCHistory()
 
-        beta_step = 1 / n_steps
+        if n_steps is not None:
+            beta_step = 1 / n_steps
+        elif not adaptive:
+            raise ValueError("Either n_steps or adaptive=True must be set")
+        else:
+            beta_step = np.nan
         beta = 0.0
         beta_min = 0.0
         iterations = 0
