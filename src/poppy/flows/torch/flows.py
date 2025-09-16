@@ -1,3 +1,4 @@
+import copy
 import logging
 from typing import Callable
 
@@ -150,6 +151,9 @@ class ZukoFlow(BaseTorchFlow):
             )
         history = FlowHistory()
 
+        best_val_loss = float("inf")
+        best_flow_state = None
+
         with tqdm.tqdm(range(n_epochs), desc="Epochs") as pbar:
             for _ in pbar:
                 self.flow.train()
@@ -174,11 +178,19 @@ class ZukoFlow(BaseTorchFlow):
                     with torch.no_grad():
                         val_loss += self.loss_fn(x_batch).item()
                 avg_val_loss = val_loss / len(val_dataset)
+                if avg_val_loss < best_val_loss:
+                    best_val_loss = avg_val_loss
+                    best_flow_state = copy.deepcopy(self.flow.state_dict())
+
                 history.validation_loss.append(avg_val_loss)
                 pbar.set_postfix(
                     train_loss=f"{avg_train_loss:.4f}",
                     val_loss=f"{avg_val_loss:.4f}",
                 )
+        if best_flow_state is not None:
+            self.flow.load_state_dict(best_flow_state)
+            logger.info(f"Loaded best model with val loss {best_val_loss:.4f}")
+
         self.flow.eval()
         return history
 
