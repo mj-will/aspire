@@ -158,6 +158,64 @@ class BaseSamples:
     def __len__(self):
         return len(self.x)
 
+    def __getitem__(self, idx) -> BaseSamples:
+        return self.__class__(
+            x=self.x[idx],
+            log_likelihood=self.log_likelihood[idx]
+            if self.log_likelihood is not None
+            else None,
+            log_prior=self.log_prior[idx]
+            if self.log_prior is not None
+            else None,
+            log_q=self.log_q[idx] if self.log_q is not None else None,
+            parameters=self.parameters,
+        )
+
+    def __setitem__(self, idx, value: BaseSamples):
+        raise NotImplementedError("Setting items is not supported")
+
+    @classmethod
+    def concatenate(cls, *samples: BaseSamples) -> BaseSamples:
+        """Concatenate multiple Samples objects."""
+        if not samples:
+            raise ValueError("No samples to concatenate")
+        if not all(s.parameters == samples[0].parameters for s in samples):
+            raise ValueError("Parameters do not match")
+        if not all(s.xp == samples[0].xp for s in samples):
+            raise ValueError("Array namespaces do not match")
+        xp = samples[0].xp
+        return cls(
+            x=xp.concatenate([s.x for s in samples], axis=0),
+            log_likelihood=xp.concatenate(
+                [s.log_likelihood for s in samples], axis=0
+            )
+            if all(s.log_likelihood is not None for s in samples)
+            else None,
+            log_prior=xp.concatenate([s.log_prior for s in samples], axis=0)
+            if all(s.log_prior is not None for s in samples)
+            else None,
+            log_q=xp.concatenate([s.log_q for s in samples], axis=0)
+            if all(s.log_q is not None for s in samples)
+            else None,
+            parameters=samples[0].parameters,
+        )
+
+    @classmethod
+    def from_samples(cls, samples: BaseSamples, **kwargs) -> BaseSamples:
+        """Create a Samples object from a BaseSamples object."""
+        xp = kwargs.pop("xp", samples.xp)
+        device = kwargs.pop("device", samples.device)
+        return cls(
+            x=samples.x,
+            log_likelihood=samples.log_likelihood,
+            log_prior=samples.log_prior,
+            log_q=samples.log_q,
+            parameters=samples.parameters,
+            xp=xp,
+            device=device,
+            **kwargs,
+        )
+
 
 @dataclass
 class Samples(BaseSamples):
@@ -316,6 +374,14 @@ class Samples(BaseSamples):
             else None,
         )
 
+    def __getitem__(self, idx):
+        sliced = super().__getitem__(idx)
+        return self.__class__.from_samples(
+            sliced,
+            log_evidence=self.log_evidence,
+            log_evidence_error=self.log_evidence_error,
+        )
+
 
 @dataclass
 class SMCSamples(BaseSamples):
@@ -376,4 +442,12 @@ class SMCSamples(BaseSamples):
             parameters=self.parameters,
             log_evidence=self.log_evidence,
             log_evidence_error=self.log_evidence_error,
+        )
+
+    def __getitem__(self, idx):
+        sliced = super().__getitem__(idx)
+        return self.__class__.from_samples(
+            sliced,
+            beta=self.beta,
+            log_evidence=self.log_evidence,
         )

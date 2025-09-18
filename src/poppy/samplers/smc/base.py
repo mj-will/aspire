@@ -12,12 +12,12 @@ from ...utils import (
     track_calls,
     update_at_indices,
 )
-from ..base import Sampler
+from ..mcmc import MCMCSampler
 
 logger = logging.getLogger(__name__)
 
 
-class SMCSampler(Sampler):
+class SMCSampler(MCMCSampler):
     """Base class for Sequential Monte Carlo samplers."""
 
     def __init__(
@@ -49,14 +49,9 @@ class SMCSampler(Sampler):
         target_efficiency: float = 0.5,
         n_final_samples: int | None = None,
     ):
-        x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
-        self.preconditioning_transform.fit(x)
-        self.beta = 0.0
-        samples = SMCSamples(x, xp=self.xp, log_q=log_q, beta=self.beta)
-        samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
-        samples.log_likelihood = samples.array_to_namespace(
-            self.log_likelihood(samples)
-        )
+        samples = self.draw_initial_samples(n_samples)
+        samples = SMCSamples.from_samples(samples, xp=self.xp, beta=0.0)
+        self.fit_preconditioning_transform(samples.x)
 
         if self.xp.isnan(samples.log_q).any():
             raise ValueError("Log proposal contains NaN values")

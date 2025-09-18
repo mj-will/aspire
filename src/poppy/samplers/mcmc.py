@@ -6,6 +6,36 @@ from .base import Sampler
 
 
 class MCMCSampler(Sampler):
+    def draw_initial_samples(self, n_samples: int) -> Samples:
+        """Draw initial samples from the prior flow."""
+        # Flow may propose samples outside prior bounds, so we may need
+        # to try multiple times to get enough valid samples.
+        n_samples_drawn = 0
+        samples = None
+        while n_samples_drawn < n_samples:
+            n_to_draw = n_samples - n_samples_drawn
+            x, log_q = self.prior_flow.sample_and_log_prob(n_to_draw)
+            new_samples = Samples(x, xp=self.xp, log_q=log_q)
+            new_samples.log_prior = new_samples.array_to_namespace(
+                self.log_prior(new_samples)
+            )
+            valid = self.xp.isfinite(new_samples.log_prior)
+            n_valid = self.xp.sum(valid)
+            if n_valid > 0:
+                if samples is None:
+                    samples = new_samples[valid]
+                else:
+                    samples = Samples.concatenate(samples, new_samples[valid])
+                n_samples_drawn += n_valid
+
+        if n_samples_drawn > n_samples:
+            samples = samples[:n_samples]
+
+        samples.log_likelihood = samples.array_to_namespace(
+            self.log_likelihood(samples)
+        )
+        return samples
+
     def log_prob(self, z):
         """Compute the log probability of the samples.
 
@@ -45,7 +75,9 @@ class Emcee(MCMCSampler):
         )
 
         rng = rng or np.random.default_rng()
-        p0 = self.prior_flow.sample(nwalkers)
+
+        samples = self.draw_initial_samples(nwalkers)
+        p0 = samples.x
 
         z0 = to_numpy(self.preconditioning_transform.fit(p0))
 
@@ -93,7 +125,7 @@ class MiniPCN(MCMCSampler):
         from minipcn import Sampler
 
         rng = rng or np.random.default_rng()
-        p0 = self.prior_flow.sample(n_samples)
+        p0 = self.draw_initial_samples(n_samples).x
 
         z0 = to_numpy(self.preconditioning_transform.fit(p0))
 
