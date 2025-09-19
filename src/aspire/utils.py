@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from array_api_compat.common._typing import Array
 
-    from .aspire import aspire
+    from .aspire import Aspire
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class PoolHandler:
 
     def __init__(
         self,
-        aspire_instance: aspire,
+        aspire_instance: Aspire,
         pool: Pool,
         close_pool: bool = True,
         parallelize_prior: bool = False,
@@ -118,17 +118,17 @@ class PoolHandler:
         return self._aspire_instance
 
     @aspire_instance.setter
-    def aspire_instance(self, value: aspire):
+    def aspire_instance(self, value: Aspire):
         signature = inspect.signature(value.log_likelihood)
         if "map_fn" not in signature.parameters:
             raise ValueError(
-                "The log_likelihood method of the aspire instance must accept a"
+                "The log_likelihood method of the Aspire instance must accept a"
                 " 'map_fn' keyword argument."
             )
         signature = inspect.signature(value.log_prior)
         if "map_fn" not in signature.parameters and self.parallelize_prior:
             raise ValueError(
-                "The log_prior method of the aspire instance must accept a"
+                "The log_prior method of the Aspire instance must accept a"
                 " 'map_fn' keyword argument if parallelize_prior is True."
             )
         self._aspire_instance = value
@@ -384,7 +384,7 @@ def get_package_version(package_name: str) -> str:
         return "not installed"
 
 
-class aspireFile(h5py.File):
+class AspireFile(h5py.File):
     """A subclass of h5py.File that adds metadata to the file."""
 
     def __init__(self, *args, **kwargs):
