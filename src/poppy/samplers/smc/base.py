@@ -224,10 +224,9 @@ class SMCSampler(MCMCSampler):
         if n_final_samples is not None:
             logger.info(f"Generating {n_final_samples} final samples")
             final_samples = samples.resample(
-                1.0, n_samples=n_final_samples - len(samples), rng=self.rng
+                1.0, n_samples=n_final_samples, rng=self.rng
             )
-            final_samples = self.mutate(final_samples, 1.0)
-            samples = SMCSamples.concatenate([samples, final_samples])
+            samples = self.mutate(final_samples, 1.0)
 
         samples.log_evidence = samples.xp.sum(
             asarray(self.history.log_norm_ratio, self.xp)
