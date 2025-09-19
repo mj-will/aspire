@@ -42,6 +42,7 @@ class FlowHistory(History):
 @dataclass
 class SMCHistory(History):
     log_norm_ratio: list[float] = field(default_factory=list)
+    log_norm_ratio_var: list[float] = field(default_factory=list)
     beta: list[float] = field(default_factory=list)
     ess: list[float] = field(default_factory=list)
     ess_target: list[float] = field(default_factory=list)

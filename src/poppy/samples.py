@@ -393,16 +393,28 @@ class SMCSamples(BaseSamples):
         log_p_T = self.log_likelihood + self.log_prior
         return (1 - beta) * self.log_q + beta * log_p_T
 
-    def unnormalized_log_weights(self, beta):
+    def unnormalized_log_weights(self, beta: float) -> Array:
         return (self.beta - beta) * self.log_q + (beta - self.beta) * (
             self.log_likelihood + self.log_prior
         )
 
-    def log_evidence_ratio(self, beta):
+    def log_evidence_ratio(self, beta: float) -> float:
         log_w = self.unnormalized_log_weights(beta)
         return logsumexp(log_w) - math.log(len(self.x))
+    
+    def log_evidence_ratio_variance(self, beta: float) -> float:
+        """Estimate the variance of the log evidence ratio using the delta method.
+        
+        Defined as Var(log Z) = Var(w) / (E[w])^2 where w are the unnormalized weights.
+        """
+        log_w = self.unnormalized_log_weights(beta)
+        m = self.xp.max(log_w)
+        u = self.xp.exp(log_w - m)
+        mean_w = self.xp.mean(u)
+        var_w = self.xp.var(u)
+        return var_w / (len(self) * (mean_w ** 2)) if mean_w != 0 else self.xp.nan
 
-    def log_weights(self, beta) -> Array:
+    def log_weights(self, beta: float) -> Array:
         log_w = self.unnormalized_log_weights(beta)
         if self.xp.isnan(log_w).any():
             raise ValueError(f"Log weights contain NaN values for beta={beta}")

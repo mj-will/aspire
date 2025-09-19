@@ -137,14 +137,14 @@ class SMCSampler(MCMCSampler):
     def sample(
         self,
         n_samples: int,
-        n_steps: int = None,
+        n_steps: int | None = None,
         adaptive: bool = True,
         min_step: float | None = None,
         max_n_steps: int | None = None,
         target_efficiency: float = 0.5,
         target_efficiency_rate: float = 1.0,
         n_final_samples: int | None = None,
-    ):
+    ) -> SMCSamples:
         samples = self.draw_initial_samples(n_samples)
         samples = SMCSamples.from_samples(samples, xp=self.xp, beta=0.0)
         self.fit_preconditioning_transform(samples.x)
@@ -157,6 +157,10 @@ class SMCSampler(MCMCSampler):
             raise ValueError("Log likelihood contains NaN values")
 
         logger.debug(f"Initial sample summary: {samples}")
+
+        # Remove the n_final_steps from sampler_kwargs if present
+        self.sampler_kwargs = self.sampler_kwargs or {}
+        n_final_steps = self.sampler_kwargs.pop("n_final_steps", None)
 
         self.history = SMCHistory()
 
@@ -209,9 +213,11 @@ class SMCSampler(MCMCSampler):
             )
 
             log_evidence_ratio = samples.log_evidence_ratio(beta)
+            log_evidence_ratio_var = samples.log_evidence_ratio_variance(beta)
             self.history.log_norm_ratio.append(log_evidence_ratio)
+            self.history.log_norm_ratio_var.append(log_evidence_ratio_var)
             logger.info(
-                f"it {iterations} - Log evidence ratio: {log_evidence_ratio}"
+                f"it {iterations} - Log evidence ratio: {log_evidence_ratio:.2f} +/- {np.sqrt(log_evidence_ratio_var):.2f}"
             )
 
             samples = samples.resample(beta, rng=self.rng)
@@ -226,15 +232,17 @@ class SMCSampler(MCMCSampler):
             final_samples = samples.resample(
                 1.0, n_samples=n_final_samples, rng=self.rng
             )
-            samples = self.mutate(final_samples, 1.0)
+            samples = self.mutate(final_samples, 1.0, n_steps=n_final_steps)
 
         samples.log_evidence = samples.xp.sum(
             asarray(self.history.log_norm_ratio, self.xp)
         )
-        samples.log_evidence_error = samples.xp.nan
+        samples.log_evidence_error = samples.xp.sqrt(samples.xp.sum(
+            asarray(self.history.log_norm_ratio_var, self.xp)
+        ))
 
         final_samples = samples.to_standard_samples()
-        logger.info(f"Log evidence: {final_samples.log_evidence:.2f}")
+        logger.info(f"Log evidence: {final_samples.log_evidence:.2f} +/- {final_samples.log_evidence_error:.2f}")
         return final_samples
 
     def mutate(self, particles):
