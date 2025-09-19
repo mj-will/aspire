@@ -1,3 +1,4 @@
+import copy
 import logging
 
 import numpy as np
@@ -34,7 +35,7 @@ class EmceeSMC(NumpySMCSampler):
             n_final_samples=n_final_samples,
         )
 
-    def mutate(self, particles, beta):
+    def mutate(self, particles, beta, n_steps=None):
         import emcee
 
         logger.info("Mutating particles")
@@ -47,7 +48,10 @@ class EmceeSMC(NumpySMCSampler):
             moves=self.emcee_moves,
         )
         z = self.fit_preconditioning_transform(particles.x)
-        sampler.run_mcmc(z, **self.sampler_kwargs)
+        kwargs = copy.deepcopy(self.sampler_kwargs)
+        if n_steps is not None:
+            kwargs["nsteps"] = n_steps
+        sampler.run_mcmc(z, **kwargs)
         self.history.mcmc_acceptance.append(
             np.mean(sampler.acceptance_fraction)
         )

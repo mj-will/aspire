@@ -45,7 +45,7 @@ class MiniPCNSMC(NumpySMCSampler):
             max_n_steps=max_n_steps,
         )
 
-    def mutate(self, particles, beta):
+    def mutate(self, particles, beta, n_steps=None):
         from minipcn import Sampler
 
         log_prob_fn = partial(self.log_prob, beta=beta)
@@ -63,7 +63,7 @@ class MiniPCNSMC(NumpySMCSampler):
         z = to_numpy(self.fit_preconditioning_transform(particles.x))
         chain, history = sampler.sample(
             z,
-            n_steps=self.sampler_kwargs["n_steps"],
+            n_steps=n_steps or self.sampler_kwargs["n_steps"],
         )
         x = self.preconditioning_transform.inverse(chain[-1])[0]
 

@@ -128,7 +128,7 @@ class BlackJAXSMC(SMCSampler):
             n_final_samples=n_final_samples,
         )
 
-    def mutate(self, particles, beta):
+    def mutate(self, particles, beta, n_steps=None):
         """Mutate particles using BlackJAX MCMC."""
         import blackjax
         import jax
@@ -149,6 +149,8 @@ class BlackJAXSMC(SMCSampler):
 
         # Choose BlackJAX algorithm
         algorithm = self.sampler_kwargs["algorithm"].lower()
+
+        n_steps = n_steps or self.sampler_kwargs["n_steps"]
 
         if algorithm == "rwmh" or algorithm == "random_walk":
             # Initialize Random Walk Metropolis-Hastings sampler
@@ -194,7 +196,7 @@ class BlackJAXSMC(SMCSampler):
                     state, info = rwmh.step(key, state)
                     return state, (state, info)
 
-                keys = jax.random.split(key, self.sampler_kwargs["n_steps"])
+                keys = jax.random.split(key, n_steps)
                 final_state, (states, infos) = jax.lax.scan(
                     one_step, state, keys
                 )
