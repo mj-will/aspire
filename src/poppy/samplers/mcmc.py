@@ -25,7 +25,7 @@ class MCMCSampler(Sampler):
                 if samples is None:
                     samples = new_samples[valid]
                 else:
-                    samples = Samples.concatenate(samples, new_samples[valid])
+                    samples = Samples.concatenate([samples, new_samples[valid]])
                 n_samples_drawn += n_valid
 
         if n_samples_drawn > n_samples:
