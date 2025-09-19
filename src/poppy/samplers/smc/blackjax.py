@@ -1,6 +1,8 @@
 import logging
 from functools import partial
 
+import numpy as np
+
 from ...samples import SMCSamples
 from ...utils import asarray, to_numpy, track_calls
 from .base import SMCSampler
@@ -20,6 +22,7 @@ class BlackJAXSMC(SMCSampler):
         xp,
         parameters=None,
         preconditioning_transform=None,
+        rng: np.random.Generator | None = None,  # New parameter
     ):
         # For JAX compatibility, we'll keep the original xp
         super().__init__(
@@ -32,6 +35,7 @@ class BlackJAXSMC(SMCSampler):
             preconditioning_transform=preconditioning_transform,
         )
         self.key = None
+        self.rng = rng or np.random.default_rng()
 
     def log_prob(self, x, beta=None):
         """Log probability function compatible with BlackJAX."""
@@ -74,6 +78,7 @@ class BlackJAXSMC(SMCSampler):
         n_steps: int = None,
         adaptive: bool = True,
         target_efficiency: float = 0.5,
+        target_efficiency_rate: float = 1.0,
         n_final_samples: int | None = None,
         sampler_kwargs: dict | None = None,
         rng_key=None,
@@ -123,10 +128,11 @@ class BlackJAXSMC(SMCSampler):
             n_steps=n_steps,
             adaptive=adaptive,
             target_efficiency=target_efficiency,
+            target_efficiency_rate=target_efficiency_rate,
             n_final_samples=n_final_samples,
         )
 
-    def mutate(self, particles, beta):
+    def mutate(self, particles, beta, n_steps=None):
         """Mutate particles using BlackJAX MCMC."""
         import blackjax
         import jax
@@ -147,6 +153,8 @@ class BlackJAXSMC(SMCSampler):
 
         # Choose BlackJAX algorithm
         algorithm = self.sampler_kwargs["algorithm"].lower()
+
+        n_steps = n_steps or self.sampler_kwargs["n_steps"]
 
         if algorithm == "rwmh" or algorithm == "random_walk":
             # Initialize Random Walk Metropolis-Hastings sampler
@@ -192,7 +200,7 @@ class BlackJAXSMC(SMCSampler):
                     state, info = rwmh.step(key, state)
                     return state, (state, info)
 
-                keys = jax.random.split(key, self.sampler_kwargs["n_steps"])
+                keys = jax.random.split(key, n_steps)
                 final_state, (states, infos) = jax.lax.scan(
                     one_step, state, keys
                 )

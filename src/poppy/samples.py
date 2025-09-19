@@ -158,6 +158,64 @@ class BaseSamples:
     def __len__(self):
         return len(self.x)
 
+    def __getitem__(self, idx) -> BaseSamples:
+        return self.__class__(
+            x=self.x[idx],
+            log_likelihood=self.log_likelihood[idx]
+            if self.log_likelihood is not None
+            else None,
+            log_prior=self.log_prior[idx]
+            if self.log_prior is not None
+            else None,
+            log_q=self.log_q[idx] if self.log_q is not None else None,
+            parameters=self.parameters,
+        )
+
+    def __setitem__(self, idx, value: BaseSamples):
+        raise NotImplementedError("Setting items is not supported")
+
+    @classmethod
+    def concatenate(cls, samples: list[BaseSamples]) -> BaseSamples:
+        """Concatenate multiple Samples objects."""
+        if not samples:
+            raise ValueError("No samples to concatenate")
+        if not all(s.parameters == samples[0].parameters for s in samples):
+            raise ValueError("Parameters do not match")
+        if not all(s.xp == samples[0].xp for s in samples):
+            raise ValueError("Array namespaces do not match")
+        xp = samples[0].xp
+        return cls(
+            x=xp.concatenate([s.x for s in samples], axis=0),
+            log_likelihood=xp.concatenate(
+                [s.log_likelihood for s in samples], axis=0
+            )
+            if all(s.log_likelihood is not None for s in samples)
+            else None,
+            log_prior=xp.concatenate([s.log_prior for s in samples], axis=0)
+            if all(s.log_prior is not None for s in samples)
+            else None,
+            log_q=xp.concatenate([s.log_q for s in samples], axis=0)
+            if all(s.log_q is not None for s in samples)
+            else None,
+            parameters=samples[0].parameters,
+        )
+
+    @classmethod
+    def from_samples(cls, samples: BaseSamples, **kwargs) -> BaseSamples:
+        """Create a Samples object from a BaseSamples object."""
+        xp = kwargs.pop("xp", samples.xp)
+        device = kwargs.pop("device", samples.device)
+        return cls(
+            x=samples.x,
+            log_likelihood=samples.log_likelihood,
+            log_prior=samples.log_prior,
+            log_q=samples.log_q,
+            parameters=samples.parameters,
+            xp=xp,
+            device=device,
+            **kwargs,
+        )
+
 
 @dataclass
 class Samples(BaseSamples):
@@ -316,6 +374,14 @@ class Samples(BaseSamples):
             else None,
         )
 
+    def __getitem__(self, idx):
+        sliced = super().__getitem__(idx)
+        return self.__class__.from_samples(
+            sliced,
+            log_evidence=self.log_evidence,
+            log_evidence_error=self.log_evidence_error,
+        )
+
 
 @dataclass
 class SMCSamples(BaseSamples):
@@ -327,31 +393,54 @@ class SMCSamples(BaseSamples):
         log_p_T = self.log_likelihood + self.log_prior
         return (1 - beta) * self.log_q + beta * log_p_T
 
-    def unnormalized_log_weights(self, beta):
+    def unnormalized_log_weights(self, beta: float) -> Array:
         return (self.beta - beta) * self.log_q + (beta - self.beta) * (
             self.log_likelihood + self.log_prior
         )
 
-    def log_evidence_ratio(self, beta):
+    def log_evidence_ratio(self, beta: float) -> float:
         log_w = self.unnormalized_log_weights(beta)
         return logsumexp(log_w) - math.log(len(self.x))
 
-    def log_weights(self, beta) -> Array:
+    def log_evidence_ratio_variance(self, beta: float) -> float:
+        """Estimate the variance of the log evidence ratio using the delta method.
+
+        Defined as Var(log Z) = Var(w) / (E[w])^2 where w are the unnormalized weights.
+        """
+        log_w = self.unnormalized_log_weights(beta)
+        m = self.xp.max(log_w)
+        u = self.xp.exp(log_w - m)
+        mean_w = self.xp.mean(u)
+        var_w = self.xp.var(u)
+        return (
+            var_w / (len(self) * (mean_w**2)) if mean_w != 0 else self.xp.nan
+        )
+
+    def log_weights(self, beta: float) -> Array:
         log_w = self.unnormalized_log_weights(beta)
         if self.xp.isnan(log_w).any():
             raise ValueError(f"Log weights contain NaN values for beta={beta}")
         log_evidence_ratio = logsumexp(log_w) - math.log(len(self.x))
         return log_w + log_evidence_ratio
 
-    def resample(self, beta, n_samples: int | None = None) -> "SMCSamples":
-        if beta == self.beta:
-            logger.warning("Resampling with the same beta value")
+    def resample(
+        self,
+        beta,
+        n_samples: int | None = None,
+        rng: np.random.Generator = None,
+    ) -> "SMCSamples":
+        if beta == self.beta and n_samples is None:
+            logger.warning(
+                "Resampling with the same beta value, returning identical samples"
+            )
             return self
+        if rng is None:
+            rng = np.random.default_rng()
         if n_samples is None:
             n_samples = len(self.x)
         log_w = self.log_weights(beta)
         w = to_numpy(self.xp.exp(log_w - logsumexp(log_w)))
-        idx = np.random.choice(len(self.x), size=n_samples, replace=True, p=w)
+        idx = rng.choice(len(self.x), size=n_samples, replace=True, p=w)
         return self.__class__(
             x=self.x[idx],
             log_likelihood=self.log_likelihood[idx],
@@ -376,4 +465,12 @@ class SMCSamples(BaseSamples):
             parameters=self.parameters,
             log_evidence=self.log_evidence,
             log_evidence_error=self.log_evidence_error,
+        )
+
+    def __getitem__(self, idx):
+        sliced = super().__getitem__(idx)
+        return self.__class__.from_samples(
+            sliced,
+            beta=self.beta,
+            log_evidence=self.log_evidence,
         )
