@@ -45,6 +45,7 @@ class SMCHistory(History):
     beta: list[float] = field(default_factory=list)
     ess: list[float] = field(default_factory=list)
     ess_target: list[float] = field(default_factory=list)
+    eff_target: list[float] = field(default_factory=list)
     mcmc_autocorr: list[float] = field(default_factory=list)
     mcmc_acceptance: list[float] = field(default_factory=list)
 
@@ -91,6 +92,16 @@ class SMCHistory(History):
         ax.set_xlabel("Iteration")
         ax.set_ylabel("ESS target")
         return fig
+    
+    def plot_eff_target(self, ax=None) -> Figure | None:
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = None
+        ax.plot(self.eff_target)
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("Efficiency target")
+        return fig
 
     def plot_mcmc_acceptance(self, ax=None) -> Figure | None:
         if ax is None:
@@ -118,6 +129,7 @@ class SMCHistory(History):
             self.plot_log_norm_ratio,
             self.plot_ess,
             self.plot_ess_target,
+            self.plot_eff_target,
             self.plot_mcmc_acceptance,
         ]
 
