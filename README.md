@@ -1,14 +1,14 @@
-# poppy
+# aspire: Accelerated Sequential Posterior Inference via REuse
 
-Posterior post-processing in python.
+aspire is a framework for reusing existing posterior samples to obtain new results at a reduced code.
 
 ## Installation
 
-Poppy can be installed from PyPI using `pip`
+aspire can be installed from PyPI using `pip`
 
 ```
-pip install poppy-inference
+pip install aspire-inference
 ```
 
-**Important:** the name of `poppy` on PyPI is `poppy-inference` but once installed
-the package can be imported and used as `poppy`.
+**Important:** the name of `aspire` on PyPI is `aspire-inference` but once installed
+the package can be imported and used as `aspire`.

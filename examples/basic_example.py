@@ -1,17 +1,16 @@
 """
-This examples demonstrates how to use Poppy to fit a flow to a simple Gaussian
+This examples demonstrates how to use aspire to fit a flow to a simple Gaussian
 likelihood with a uniform prior.
 """
 
 import math
 from pathlib import Path
 
+from aspire import Aspire
+from aspire.plot import plot_comparison
+from aspire.samples import Samples
+from aspire.utils import AspireFile, configure_logger
 from scipy.stats import norm, uniform
-
-from poppy import Poppy
-from poppy.plot import plot_comparison
-from poppy.samples import Samples
-from poppy.utils import PoppyFile, configure_logger
 
 # Configure the logger
 configure_logger("INFO")
@@ -44,8 +43,8 @@ initial_samples = Samples(norm(2.5, 1.0).rvs(size=(5000, dims)))
 parameters = [f"x_{i}" for i in range(dims)]
 prior_bounds = {p: [-10, 10] for p in parameters}
 
-# Define the poppy object
-poppy = Poppy(
+# Define the aspire object
+aspire = Aspire(
     log_likelihood=log_likelihood,
     log_prior=log_prior,
     dims=dims,
@@ -54,7 +53,7 @@ poppy = Poppy(
 )
 
 # Fit the flow to the initial samples
-history = poppy.fit(
+history = aspire.fit(
     initial_samples,
     n_epochs=50,
 )
@@ -63,13 +62,13 @@ fig = history.plot_loss()
 fig.savefig(outdir / "loss.png")
 
 # Produce samples from the posterior
-samples = poppy.sample_posterior(5000)
+samples = aspire.sample_posterior(5000)
 
 # Save the the results to a file
-# The PoppyFile is a small wrapper around h5py.File that automatically
+# The AspireFile is a small wrapper around h5py.File that automatically
 # includes additional metadata
-with PoppyFile(outdir / "poppy_result.h5", "w") as f:
-    poppy.save_config(f, "poppy_config")
+with AspireFile(outdir / "aspire_result.h5", "w") as f:
+    aspire.save_config(f, "aspire_config")
     samples.save(f, "posterior_samples")
     history.save(f, "flow_history")
 

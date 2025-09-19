@@ -1,8 +1,7 @@
 import jax
 import jax.numpy as jnp
-
-from poppy.flows.jax.flows import FlowJax
-from poppy.transforms import FlowTransform
+from aspire.flows.jax.flows import FlowJax
+from aspire.transforms import FlowTransform
 
 
 def test_zuko_flow():

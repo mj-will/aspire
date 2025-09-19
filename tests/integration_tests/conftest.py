@@ -2,8 +2,7 @@ import math
 from collections import namedtuple
 
 import pytest
-
-from poppy.samples import Samples
+from aspire.samples import Samples
 
 SamplerConfig = namedtuple(
     "SamplerConfig",

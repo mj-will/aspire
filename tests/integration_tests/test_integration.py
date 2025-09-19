@@ -1,6 +1,5 @@
 import pytest
-
-from poppy import Poppy
+from aspire import Aspire
 
 
 def test_integration_zuko(
@@ -16,7 +15,7 @@ def test_integration_zuko(
     if sampler_config.sampler == "blackjax_smc":
         pytest.xfail(reason="BlackJAX requires JAX arrays.")
 
-    poppy = Poppy(
+    aspire = Aspire(
         log_likelihood=log_likelihood,
         log_prior=log_prior,
         dims=dims,
@@ -26,8 +25,8 @@ def test_integration_zuko(
         bounded_to_unbounded=bounded_to_unbounded,
         flow_backend="zuko",
     )
-    poppy.fit(samples, n_epochs=5)
-    poppy.sample_posterior(
+    aspire.fit(samples, n_epochs=5)
+    aspire.sample_posterior(
         n_samples=100,
         sampler=sampler_config.sampler,
         **sampler_config.sampler_kwargs,
@@ -51,7 +50,7 @@ def test_integration_flowjax(
     if sampler_config.sampler == "blackjax_smc" and samples_backend != "jax":
         pytest.xfail(reason="BlackJAX requires JAX arrays.")
 
-    poppy = Poppy(
+    aspire = Aspire(
         log_likelihood=log_likelihood,
         log_prior=log_prior,
         dims=dims,
@@ -62,8 +61,8 @@ def test_integration_flowjax(
         flow_backend="flowjax",
         key=jax.random.key(0),
     )
-    poppy.fit(samples, max_epochs=5)
-    poppy.sample_posterior(
+    aspire.fit(samples, max_epochs=5)
+    aspire.sample_posterior(
         n_samples=100,
         sampler=sampler_config.sampler,
         **sampler_config.sampler_kwargs,
