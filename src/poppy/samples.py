@@ -175,7 +175,7 @@ class BaseSamples:
         raise NotImplementedError("Setting items is not supported")
 
     @classmethod
-    def concatenate(cls, *samples: BaseSamples) -> BaseSamples:
+    def concatenate(cls, samples: list[BaseSamples]) -> BaseSamples:
         """Concatenate multiple Samples objects."""
         if not samples:
             raise ValueError("No samples to concatenate")
@@ -409,15 +409,17 @@ class SMCSamples(BaseSamples):
         log_evidence_ratio = logsumexp(log_w) - math.log(len(self.x))
         return log_w + log_evidence_ratio
 
-    def resample(self, beta, n_samples: int | None = None) -> "SMCSamples":
-        if beta == self.beta:
-            logger.warning("Resampling with the same beta value")
+    def resample(self, beta, n_samples: int | None = None, rng: np.random.Generator = None) -> "SMCSamples":
+        if beta == self.beta and n_samples is None:
+            logger.warning("Resampling with the same beta value, returning identical samples")
             return self
+        if rng is None:
+            rng = np.random.default_rng()
         if n_samples is None:
             n_samples = len(self.x)
         log_w = self.log_weights(beta)
         w = to_numpy(self.xp.exp(log_w - logsumexp(log_w)))
-        idx = np.random.choice(len(self.x), size=n_samples, replace=True, p=w)
+        idx = rng.choice(len(self.x), size=n_samples, replace=True, p=w)
         return self.__class__(
             x=self.x[idx],
             log_likelihood=self.log_likelihood[idx],
