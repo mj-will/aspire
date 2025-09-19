@@ -237,11 +237,12 @@ class Poppy:
         elif preconditioning in ["standard", "default"]:
             preconditioning_kwargs = preconditioning_kwargs or {}
             preconditioning_kwargs.setdefault("affine_transform", False)
+            preconditioning_kwargs.setdefault("bounded_to_unbounded", False)
+            preconditioning_kwargs.setdefault("bounded_transform", "logit")
             transform = CompositeTransform(
                 parameters=self.parameters,
                 prior_bounds=self.prior_bounds,
                 periodic_parameters=self.periodic_parameters,
-                bounded_to_unbounded=False,
                 xp=self.xp,
                 device=self.device,
                 **preconditioning_kwargs,
