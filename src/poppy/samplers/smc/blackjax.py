@@ -74,6 +74,7 @@ class BlackJAXSMC(SMCSampler):
         n_steps: int = None,
         adaptive: bool = True,
         target_efficiency: float = 0.5,
+        target_efficiency_rate: float = 1.0,
         n_final_samples: int | None = None,
         sampler_kwargs: dict | None = None,
         rng_key=None,
@@ -123,6 +124,7 @@ class BlackJAXSMC(SMCSampler):
             n_steps=n_steps,
             adaptive=adaptive,
             target_efficiency=target_efficiency,
+            target_efficiency_rate=target_efficiency_rate,
             n_final_samples=n_final_samples,
         )
 

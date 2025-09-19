@@ -17,6 +17,7 @@ class EmceeSMC(NumpySMCSampler):
         n_steps: int = None,
         adaptive: bool = True,
         target_efficiency: float = 0.5,
+        target_efficiency_rate: float = 1.0,
         sampler_kwargs: dict | None = None,
         n_final_samples: int | None = None,
     ):
@@ -29,6 +30,7 @@ class EmceeSMC(NumpySMCSampler):
             n_steps=n_steps,
             adaptive=adaptive,
             target_efficiency=target_efficiency,
+            target_efficiency_rate=target_efficiency_rate,
             n_final_samples=n_final_samples,
         )
 

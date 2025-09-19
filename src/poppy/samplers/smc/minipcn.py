@@ -20,8 +20,11 @@ class MiniPCNSMC(NumpySMCSampler):
         self,
         n_samples: int,
         n_steps: int = None,
+        min_step: float | None = None,
+        max_n_steps: int | None = None,
         adaptive: bool = True,
         target_efficiency: float = 0.5,
+        target_efficiency_rate: float = 1.0,
         n_final_samples: int | None = None,
         sampler_kwargs: dict | None = None,
         rng: np.random.Generator | None = None,
@@ -36,7 +39,10 @@ class MiniPCNSMC(NumpySMCSampler):
             n_steps=n_steps,
             adaptive=adaptive,
             target_efficiency=target_efficiency,
+            target_efficiency_rate=target_efficiency_rate,
             n_final_samples=n_final_samples,
+            min_step=min_step,
+            max_n_steps=max_n_steps,
         )
 
     def mutate(self, particles, beta):
