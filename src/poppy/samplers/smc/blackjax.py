@@ -1,6 +1,8 @@
 import logging
 from functools import partial
 
+import numpy as np
+
 from ...samples import SMCSamples
 from ...utils import asarray, to_numpy, track_calls
 from .base import SMCSampler
@@ -20,6 +22,7 @@ class BlackJAXSMC(SMCSampler):
         xp,
         parameters=None,
         preconditioning_transform=None,
+        rng: np.random.Generator | None = None,  # New parameter
     ):
         # For JAX compatibility, we'll keep the original xp
         super().__init__(
@@ -32,6 +35,7 @@ class BlackJAXSMC(SMCSampler):
             preconditioning_transform=preconditioning_transform,
         )
         self.key = None
+        self.rng = rng or np.random.default_rng()
 
     def log_prob(self, x, beta=None):
         """Log probability function compatible with BlackJAX."""

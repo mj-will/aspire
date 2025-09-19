@@ -28,6 +28,7 @@ class SMCSampler(MCMCSampler):
         prior_flow: Flow,
         xp: Callable,
         parameters: list[str] | None = None,
+        rng: np.random.Generator | None = None,
         preconditioning_transform: Callable | None = None,
     ):
         super().__init__(
@@ -39,6 +40,7 @@ class SMCSampler(MCMCSampler):
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
+        self.rng = rng or np.random.default_rng()
         self._adapative_target_efficiency = False
 
     @property
