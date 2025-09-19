@@ -18,8 +18,8 @@ from .utils import recursively_save_to_h5_file
 logger = logging.getLogger(__name__)
 
 
-class Poppy:
-    """Posterior post-processing.
+class Aspire:
+    """Accelerated Sequential Posterior Inference via REuse (aspire).
 
     Parameters
     ----------
@@ -294,8 +294,8 @@ class Poppy:
 
         .. code-block:: python
 
-            poppy = Poppy(...)
-            poppy.sample_posterior(
+            aspire = aspire(...)
+            aspire.sample_posterior(
                 n_samples=1000,
                 sampler="minipcn_smc",
                 adaptive=True,
@@ -385,7 +385,7 @@ class Poppy:
     def config_dict(
         self, include_sampler_config: bool = True, **kwargs
     ) -> dict:
-        """Return a dictionary with the configuration of the Poppy object.
+        """Return a dictionary with the configuration of the aspire object.
 
         Parameters
         ----------
@@ -417,7 +417,7 @@ class Poppy:
         return config
 
     def save_config(
-        self, h5_file: h5py.File, path="poppy_config", **kwargs
+        self, h5_file: h5py.File, path="aspire_config", **kwargs
     ) -> None:
         """Save the configuration to an HDF5 file.
 

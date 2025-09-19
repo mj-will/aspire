@@ -23,7 +23,8 @@ def get_flow_wrapper(backend: str = "zuko", flow_matching: bool = False):
         from importlib.metadata import entry_points
 
         eps = {
-            ep.name.lower(): ep for ep in entry_points().get("poppy.flows", [])
+            ep.name.lower(): ep
+            for ep in entry_points().get("aspire.flows", [])
         }
         if backend in eps:
             FlowClass = eps[backend].load()

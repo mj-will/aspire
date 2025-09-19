@@ -3,11 +3,11 @@ requires = ["setuptools>=45", "setuptools-scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "poppy-inference"
+name = "aspire-inference"
 authors = [
     {name = "Michael J. Williams", email = "michaeljw1@googlemail.com"},
 ]
-description = "Bayesian Posterior Post-processing in Python"
+description = "Accelerate Sequential Posterior Inference via REuse"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -49,12 +49,12 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mj-will/poppy"
+Homepage = "https://github.com/mj-will/aspire"
 
 [tool.setuptools_scm]
 
 [tool.setuptools.package-dir]
-poppy = "src/poppy"
+aspire = "src/aspire"
 
 [tool.ruff]
 line-length = 79

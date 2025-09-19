@@ -1,19 +1,19 @@
 """
-bayesian-poppy: Bayesian posterior post-processing in python
+aspire: Accelerated Sequential Posterior Inference via REuse
 """
 
 import logging
 from importlib.metadata import PackageNotFoundError, version
 
-from .poppy import Poppy
+from .aspire import aspire
 
 try:
-    __version__ = version("bayesian-poppy")
+    __version__ = version("aspire")
 except PackageNotFoundError:
     __version__ = "unknown"
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
-    "Poppy",
+    "aspire",
 ]

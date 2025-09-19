@@ -1,7 +1,6 @@
 import torch
-
-from poppy.flows.torch.flows import ZukoFlow
-from poppy.transforms import FlowTransform
+from aspire.flows.torch.flows import ZukoFlow
+from aspire.transforms import FlowTransform
 
 
 def test_zuko_flow():

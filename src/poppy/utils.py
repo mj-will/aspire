@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from array_api_compat.common._typing import Array
 
-    from .poppy import Poppy
+    from .aspire import aspire
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 def configure_logger(
     log_level: str | int = "INFO",
     additional_loggers: list[str] = None,
-    include_poppy_loggers: bool = True,
+    include_aspire_loggers: bool = True,
 ) -> logging.Logger:
     """Configure the logger.
 
@@ -43,8 +43,8 @@ def configure_logger(
         The log level to use. Defaults to "INFO".
     additional_loggers : list of str, optional
         Additional loggers to configure. Defaults to None.
-    include_poppy_loggers : bool, optional
-        Whether to include all loggers that start with "poppy_" or "poppy-".
+    include_aspire_loggers : bool, optional
+        Whether to include all loggers that start with "aspire_" or "aspire-".
         Defaults to True.
 
     Returns
@@ -52,20 +52,20 @@ def configure_logger(
     logging.Logger
         The configured logger.
     """
-    logger = logging.getLogger("poppy")
+    logger = logging.getLogger("aspire")
     logger.setLevel(log_level)
     ch = logging.StreamHandler()
     ch.setLevel(log_level)
     formatter = logging.Formatter(
-        "%(asctime)s - poppy - %(levelname)s - %(message)s"
+        "%(asctime)s - aspire - %(levelname)s - %(message)s"
     )
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
     additional_loggers = additional_loggers or []
     for name in logger.manager.loggerDict:
-        if include_poppy_loggers and (
-            name.startswith("poppy_") or name.startswith("poppy-")
+        if include_aspire_loggers and (
+            name.startswith("aspire_") or name.startswith("aspire-")
         ):
             additional_loggers.append(name)
 
@@ -82,13 +82,13 @@ def configure_logger(
 
 class PoolHandler:
     """Context manager to temporarily replace the log_likelihood method of a
-    Poppy instance with a version that uses a multiprocessing pool to
+    aspire instance with a version that uses a multiprocessing pool to
     parallelize computation.
 
     Parameters
     ----------
-    poppy_instance : Poppy
-        The Poppy instance to modify. The log_likelihood method of this
+    aspire_instance : aspire
+        The aspire instance to modify. The log_likelihood method of this
         instance must accept a :code:`map_fn` keyword argument.
     pool : multiprocessing.Pool
         The pool to use for parallel computation.
@@ -97,60 +97,60 @@ class PoolHandler:
         Defaults to True.
     parallelize_prior : bool, optional
         Whether to parallelize the log_prior method as well. Defaults to False.
-        If True, the log_prior method of the Poppy instance must also
+        If True, the log_prior method of the aspire instance must also
         accept a :code:`map_fn` keyword argument.
     """
 
     def __init__(
         self,
-        poppy_instance: Poppy,
+        aspire_instance: aspire,
         pool: Pool,
         close_pool: bool = True,
         parallelize_prior: bool = False,
     ):
         self.parallelize_prior = parallelize_prior
-        self.poppy_instance = poppy_instance
+        self.aspire_instance = aspire_instance
         self.pool = pool
         self.close_pool = close_pool
 
     @property
-    def poppy_instance(self):
-        return self._poppy_instance
+    def aspire_instance(self):
+        return self._aspire_instance
 
-    @poppy_instance.setter
-    def poppy_instance(self, value: Poppy):
+    @aspire_instance.setter
+    def aspire_instance(self, value: aspire):
         signature = inspect.signature(value.log_likelihood)
         if "map_fn" not in signature.parameters:
             raise ValueError(
-                "The log_likelihood method of the Poppy instance must accept a"
+                "The log_likelihood method of the aspire instance must accept a"
                 " 'map_fn' keyword argument."
             )
         signature = inspect.signature(value.log_prior)
         if "map_fn" not in signature.parameters and self.parallelize_prior:
             raise ValueError(
-                "The log_prior method of the Poppy instance must accept a"
+                "The log_prior method of the aspire instance must accept a"
                 " 'map_fn' keyword argument if parallelize_prior is True."
             )
-        self._poppy_instance = value
+        self._aspire_instance = value
 
     def __enter__(self):
-        self.original_log_likelihood = self.poppy_instance.log_likelihood
-        self.original_log_prior = self.poppy_instance.log_prior
+        self.original_log_likelihood = self.aspire_instance.log_likelihood
+        self.original_log_prior = self.aspire_instance.log_prior
         if self.pool is not None:
             logger.debug("Updating map function in log-likelihood method")
-            self.poppy_instance.log_likelihood = partial(
+            self.aspire_instance.log_likelihood = partial(
                 self.original_log_likelihood, map_fn=self.pool.map
             )
             if self.parallelize_prior:
                 logger.debug("Updating map function in log-prior method")
-                self.poppy_instance.log_prior = partial(
+                self.aspire_instance.log_prior = partial(
                     self.original_log_prior, map_fn=self.pool.map
                 )
         return self.pool
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.poppy_instance.log_likelihood = self.original_log_likelihood
-        self.poppy_instance.log_prior = self.original_log_prior
+        self.aspire_instance.log_likelihood = self.original_log_likelihood
+        self.aspire_instance.log_prior = self.original_log_prior
         if self.close_pool:
             logger.debug("Closing pool")
             self.pool.close()
@@ -384,17 +384,17 @@ def get_package_version(package_name: str) -> str:
         return "not installed"
 
 
-class PoppyFile(h5py.File):
+class aspireFile(h5py.File):
     """A subclass of h5py.File that adds metadata to the file."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._set_poppy_metadata()
+        self._set_aspire_metadata()
 
-    def _set_poppy_metadata(self):
-        from . import __version__ as poppy_version
+    def _set_aspire_metadata(self):
+        from . import __version__ as aspire_version
 
-        self.attrs["poppy_version"] = poppy_version
+        self.attrs["aspire_version"] = aspire_version
 
 
 def update_at_indices(x: Array, slc: Array, y: Array) -> Array:
