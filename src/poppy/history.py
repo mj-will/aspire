@@ -93,7 +93,7 @@ class SMCHistory(History):
         ax.set_xlabel("Iteration")
         ax.set_ylabel("ESS target")
         return fig
-    
+
     def plot_eff_target(self, ax=None) -> Figure | None:
         if ax is None:
             fig, ax = plt.subplots()

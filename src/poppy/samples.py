@@ -401,10 +401,10 @@ class SMCSamples(BaseSamples):
     def log_evidence_ratio(self, beta: float) -> float:
         log_w = self.unnormalized_log_weights(beta)
         return logsumexp(log_w) - math.log(len(self.x))
-    
+
     def log_evidence_ratio_variance(self, beta: float) -> float:
         """Estimate the variance of the log evidence ratio using the delta method.
-        
+
         Defined as Var(log Z) = Var(w) / (E[w])^2 where w are the unnormalized weights.
         """
         log_w = self.unnormalized_log_weights(beta)
@@ -412,7 +412,9 @@ class SMCSamples(BaseSamples):
         u = self.xp.exp(log_w - m)
         mean_w = self.xp.mean(u)
         var_w = self.xp.var(u)
-        return var_w / (len(self) * (mean_w ** 2)) if mean_w != 0 else self.xp.nan
+        return (
+            var_w / (len(self) * (mean_w**2)) if mean_w != 0 else self.xp.nan
+        )
 
     def log_weights(self, beta: float) -> Array:
         log_w = self.unnormalized_log_weights(beta)
@@ -421,9 +423,16 @@ class SMCSamples(BaseSamples):
         log_evidence_ratio = logsumexp(log_w) - math.log(len(self.x))
         return log_w + log_evidence_ratio
 
-    def resample(self, beta, n_samples: int | None = None, rng: np.random.Generator = None) -> "SMCSamples":
+    def resample(
+        self,
+        beta,
+        n_samples: int | None = None,
+        rng: np.random.Generator = None,
+    ) -> "SMCSamples":
         if beta == self.beta and n_samples is None:
-            logger.warning("Resampling with the same beta value, returning identical samples")
+            logger.warning(
+                "Resampling with the same beta value, returning identical samples"
+            )
             return self
         if rng is None:
             rng = np.random.default_rng()

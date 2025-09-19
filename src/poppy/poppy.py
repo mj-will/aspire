@@ -358,7 +358,9 @@ class Poppy:
             samples = samples.to_namespace(xp)
         samples.parameters = self.parameters
         logger.info(f"Sampled {len(samples)} samples from the posterior")
-        logger.info(f"Number of likelihood evaluations: {self.n_likelihood_evaluations}")
+        logger.info(
+            f"Number of likelihood evaluations: {self.n_likelihood_evaluations}"
+        )
         logger.info("Sample summary:")
         logger.info(samples)
         if return_history:

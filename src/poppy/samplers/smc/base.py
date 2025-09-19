@@ -46,11 +46,11 @@ class SMCSampler(MCMCSampler):
     @property
     def target_efficiency(self):
         return self._target_efficiency
-    
+
     @target_efficiency.setter
-    def target_efficiency(self, value: float|tuple):
+    def target_efficiency(self, value: float | tuple):
         """Set the target efficiency.
-        
+
         Parameters
         ----------
         value : float or tuple
@@ -65,28 +65,36 @@ class SMCSampler(MCMCSampler):
             self._target_efficiency = value
             self._adapative_target_efficiency = False
         elif len(value) != 2:
-                raise ValueError("target_efficiency must be a float or tuple of two floats")
+            raise ValueError(
+                "target_efficiency must be a float or tuple of two floats"
+            )
         else:
             value = tuple(map(float, value))
             if not (0 < value[0] < value[1] < 1):
-                raise ValueError("target_efficiency tuple must be in (0, 1) and increasing")
+                raise ValueError(
+                    "target_efficiency tuple must be in (0, 1) and increasing"
+                )
             self._target_efficiency = value
             self._adapative_target_efficiency = True
 
     def current_target_efficiency(self, beta: float) -> float:
         """Get the current target efficiency based on beta."""
         if self._adapative_target_efficiency:
-            return (
-                self._target_efficiency[0]
-                + (self._target_efficiency[1] - self._target_efficiency[0]) 
-                * (beta ** self.target_efficiency_rate)
-            )
+            return self._target_efficiency[0] + (
+                self._target_efficiency[1] - self._target_efficiency[0]
+            ) * (beta**self.target_efficiency_rate)
         else:
             return self._target_efficiency
 
-    def determine_beta(self, samples: SMCSamples, beta: float, beta_step: float, min_step: float) -> tuple[float, float]:
+    def determine_beta(
+        self,
+        samples: SMCSamples,
+        beta: float,
+        beta_step: float,
+        min_step: float,
+    ) -> tuple[float, float]:
         """Determine the next beta value.
-        
+
         Parameters
         ----------
         samples : SMCSamples
@@ -97,7 +105,7 @@ class SMCSampler(MCMCSampler):
             The fixed beta step size if not adaptive.
         min_step : float
             The minimum beta step size.
-        
+
         Returns
         -------
         beta : float
@@ -114,7 +122,9 @@ class SMCSampler(MCMCSampler):
             beta_min = beta_prev
             beta_max = 1.0
             tol = 1e-5
-            eff_beta_max = effective_sample_size(samples.log_weights(beta_max)) / len(samples)
+            eff_beta_max = effective_sample_size(
+                samples.log_weights(beta_max)
+            ) / len(samples)
             if eff_beta_max >= self.current_target_efficiency(beta_prev):
                 beta_min = 1.0
             target_eff = self.current_target_efficiency(beta_prev)
@@ -177,7 +187,7 @@ class SMCSampler(MCMCSampler):
             beta_step = np.nan
         self.adaptive = adaptive
         beta = 0.0
-        
+
         if min_step is None:
             if max_n_steps is None:
                 min_step = 0.0
@@ -193,9 +203,14 @@ class SMCSampler(MCMCSampler):
             iterations += 1
 
             beta, min_step = self.determine_beta(
-                samples, beta, beta_step, min_step,
+                samples,
+                beta,
+                beta_step,
+                min_step,
             )
-            self.history.eff_target.append(self.current_target_efficiency(beta))
+            self.history.eff_target.append(
+                self.current_target_efficiency(beta)
+            )
 
             logger.info(f"it {iterations} - beta: {beta}")
             self.history.beta.append(beta)
@@ -225,7 +240,9 @@ class SMCSampler(MCMCSampler):
             samples = samples.resample(beta, rng=self.rng)
 
             samples = self.mutate(samples, beta)
-            if beta == 1.0 or (max_n_steps is not None and iterations >= max_n_steps):
+            if beta == 1.0 or (
+                max_n_steps is not None and iterations >= max_n_steps
+            ):
                 break
 
         # If n_final_samples is not None, perform additional mutations steps
@@ -239,12 +256,14 @@ class SMCSampler(MCMCSampler):
         samples.log_evidence = samples.xp.sum(
             asarray(self.history.log_norm_ratio, self.xp)
         )
-        samples.log_evidence_error = samples.xp.sqrt(samples.xp.sum(
-            asarray(self.history.log_norm_ratio_var, self.xp)
-        ))
+        samples.log_evidence_error = samples.xp.sqrt(
+            samples.xp.sum(asarray(self.history.log_norm_ratio_var, self.xp))
+        )
 
         final_samples = samples.to_standard_samples()
-        logger.info(f"Log evidence: {final_samples.log_evidence:.2f} +/- {final_samples.log_evidence_error:.2f}")
+        logger.info(
+            f"Log evidence: {final_samples.log_evidence:.2f} +/- {final_samples.log_evidence_error:.2f}"
+        )
         return final_samples
 
     def mutate(self, particles):
