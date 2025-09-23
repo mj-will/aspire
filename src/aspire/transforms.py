@@ -50,13 +50,17 @@ class IdentityTransform(BaseTransform):
     """Identity transform that does nothing to the data."""
 
     def fit(self, x):
-        return x
+        return copy_array(x, xp=self.xp)
 
     def forward(self, x):
-        return x, self.xp.zeros(len(x), device=get_device(x))
+        return copy_array(x, xp=self.xp), self.xp.zeros(
+            len(x), device=get_device(x)
+        )
 
     def inverse(self, y):
-        return y, self.xp.zeros(len(y), device=get_device(y))
+        return copy_array(y, xp=self.xp), self.xp.zeros(
+            len(y), device=get_device(y)
+        )
 
 
 class CompositeTransform(BaseTransform):
