@@ -36,6 +36,7 @@ jax = [
 torch = [
     "torch",
     "zuko",
+    "tqdm",
 ]
 minipcn = [
     "minipcn",
