@@ -25,6 +25,9 @@ dependencies = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
+scipy = [
+    "scipy",
+]
 jax = [
     "jax",
     "jaxlib",
