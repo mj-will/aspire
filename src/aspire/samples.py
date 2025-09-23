@@ -216,6 +216,20 @@ class BaseSamples:
             **kwargs,
         )
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # replace xp (callable) with module name string
+        if self.xp is not None:
+            state["xp"] = (
+                self.xp.__name__ if hasattr(self.xp, "__name__") else None
+            )
+        return state
+
+    def __setstate__(self, state):
+        # Restore xp by checking the namespace of x
+        state["xp"] = array_namespace(state["x"])
+        self.__dict__.update(state)
+
 
 @dataclass
 class Samples(BaseSamples):
