@@ -4,7 +4,6 @@ from typing import Any
 
 from array_api_compat import device as get_device
 from array_api_compat import is_torch_namespace
-from scipy.special import erf, erfinv
 
 from .flows import get_flow_wrapper
 from .utils import (
@@ -333,6 +332,8 @@ class ProbitTransform(BaseTransform):
         return self.forward(x)[0]
 
     def forward(self, x):
+        from scipy.special import erfinv
+
         y = (x - self.lower) / (self.upper - self.lower)
         y = self.xp.clip(y, self.eps, 1.0 - self.eps)
         y = erfinv(2 * y - 1) * math.sqrt(2)
@@ -343,6 +344,8 @@ class ProbitTransform(BaseTransform):
         return y, log_abs_det_jacobian
 
     def inverse(self, y):
+        from scipy.special import erf
+
         log_abs_det_jacobian = (
             -(0.5 * (math.log(2 * math.pi) + y**2)).sum(-1)
             - self._scale_log_abs_det_jacobian
