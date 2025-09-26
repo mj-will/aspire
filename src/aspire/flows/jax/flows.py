@@ -1,6 +1,7 @@
 import logging
 from typing import Callable
 
+import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 from flowjax.train import fit_to_data
@@ -80,3 +81,83 @@ class FlowJax(Flow):
         log_prob = self._flow.log_prob(x_prime)
         x, log_abs_det_jacobian = self.inverse_rescale(x_prime)
         return xp.asarray(x), xp.asarray(log_prob - log_abs_det_jacobian)
+
+    def save(self, h5_file, path="flow"):
+        import equinox as eqx
+        from array_api_compat import numpy as np
+
+        from ...utils import recursively_save_to_h5_file
+
+        grp = h5_file.require_group(path)
+
+        # ---- config ----
+        config = self.config_dict()
+        config.pop("key", None)
+        config["key_data"] = jax.random.key_data(self.key)
+
+        data_transform = config.pop("data_transform", None)
+        if data_transform is not None:
+            data_transform.save(grp, "data_transform")
+
+        recursively_save_to_h5_file(grp, "config", config)
+
+        # ---- save arrays ----
+        arrays, _ = eqx.partition(self._flow, eqx.is_array)
+        leaves, _ = jax.tree_util.tree_flatten(arrays)
+
+        params_grp = grp.require_group("params")
+        # clear old datasets
+        for name in list(params_grp.keys()):
+            del params_grp[name]
+
+        for i, p in enumerate(leaves):
+            params_grp.create_dataset(str(i), data=np.asarray(p))
+
+    @classmethod
+    def load(cls, h5_file, path="flow"):
+        import equinox as eqx
+
+        from ...utils import load_from_h5_file
+
+        grp = h5_file[path]
+
+        # ---- config ----
+        config = load_from_h5_file(grp, "config")
+        if "data_transform" in grp:
+            from ...transforms import BaseTransform
+
+            config["data_transform"] = BaseTransform.load(
+                grp,
+                "data_transform",
+                strict=False,
+            )
+
+        key_data = config.pop("key_data", None)
+        if key_data is not None:
+            config["key"] = jax.random.wrap_key_data(key_data)
+
+        kwargs = config.pop("kwargs", {})
+        config.update(kwargs)
+
+        # build object (will replace its _flow)
+        obj = cls(**config)
+
+        # ---- load arrays ----
+        params_grp = grp["params"]
+        loaded_params = [
+            jnp.array(params_grp[str(i)][:]) for i in range(len(params_grp))
+        ]
+
+        # rebuild template flow
+        kwargs.pop("device")
+        flow_template = get_flow(key=jrandom.key(0), dims=obj.dims, **kwargs)
+        arrays_template, static = eqx.partition(flow_template, eqx.is_array)
+
+        # use treedef from template
+        treedef = jax.tree_util.tree_structure(arrays_template)
+        arrays = jax.tree_util.tree_unflatten(treedef, loaded_params)
+
+        # recombine
+        obj._flow = eqx.combine(static, arrays)
+
+        return obj

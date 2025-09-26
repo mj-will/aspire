@@ -47,6 +47,48 @@ class BaseTorchFlow(Flow):
     def fit(self, x) -> FlowHistory:
         raise NotImplementedError()
 
+    def save(self, h5_file, path="flow"):
+        """Save the weights of the flow to an HDF5 file."""
+        from ...utils import recursively_save_to_h5_file
+
+        flow_grp = h5_file.create_group(path)
+        # Save config
+        config = self.config_dict()
+        data_transform = config.pop("data_transform", None)
+        if data_transform is not None:
+            data_transform.save(flow_grp, "data_transform")
+        recursively_save_to_h5_file(flow_grp, "config", config)
+        # Save weights
+        weights_grp = flow_grp.create_group("weights")
+        for name, tensor in self._flow.state_dict().items():
+            weights_grp.create_dataset(name, data=tensor.cpu().numpy())
+
+    @classmethod
+    def load(self, h5_file, path="flow"):
+        """Load the weights of the flow from an HDF5 file."""
+        from ...utils import load_from_h5_file
+
+        flow_grp = h5_file[path]
+        # Load config
+        config = load_from_h5_file(flow_grp, "config")
+        if "data_transform" in flow_grp:
+            from ..transforms import BaseTransform
+
+            data_transform = BaseTransform.load(
+                flow_grp,
+                "data_transform",
+                strict=False,
+            )
+            config["data_transform"] = data_transform
+        obj = self(**config)
+        # Load weights
+        weights = {
+            name: torch.tensor(data[()])
+            for name, data in flow_grp["weights"].items()
+        }
+        obj._flow.load_state_dict(weights)
+        return obj
+
 
 class ZukoFlow(BaseTorchFlow):
     def __init__(
