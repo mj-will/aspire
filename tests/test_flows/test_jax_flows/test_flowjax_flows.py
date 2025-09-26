@@ -1,7 +1,9 @@
 import jax
 import jax.numpy as jnp
+
 from aspire.flows.jax.flows import FlowJax
 from aspire.transforms import FlowTransform
+from aspire.utils import AspireFile
 
 
 def test_zuko_flow():
@@ -40,3 +42,40 @@ def test_zuko_flow():
     key, sample_key = jax.random.split(key)
     x = flow.sample(1)
     assert x.shape == (1, dims)
+
+
+def test_flowjax_save_and_load(tmp_path):
+    key = jax.random.key(42)
+    key, flow_key = jax.random.split(key)
+    print(flow_key)
+    flow = FlowJax(
+        dims=2,
+        key=flow_key,
+        device="cpu",
+        data_transform=FlowTransform(
+            parameters=[f"x_{i}" for i in range(2)], xp=jnp
+        ),
+    )
+
+    key, samples_key = jax.random.split(key)
+    x = jax.random.normal(samples_key, (100, 2))
+
+    flow.fit_data_transform(x)
+
+    log_prob = flow.log_prob(x)
+
+    key_data = jax.random.key_data(flow_key)
+    re_key = jax.random.wrap_key_data(key_data)
+    assert flow_key == re_key
+
+    with AspireFile(tmp_path / "result.h5", "w") as f:
+        flow.save(f, "flow")
+
+    with AspireFile(tmp_path / "result.h5", "r") as f:
+        loaded_flow = FlowJax.load(f, "flow")
+
+    # Check if the loaded flow is equivalent to the original flow
+    assert loaded_flow.dims == flow.dims
+
+    log_prob_loaded = loaded_flow.log_prob(x)
+    assert jnp.allclose(log_prob, log_prob_loaded)
