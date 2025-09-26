@@ -382,7 +382,6 @@ def encode_for_hdf5(value: Any) -> Any:
     - Empty dictionaries are replaced with "__empty_dict__"
     """
     if is_jax_array(value) or is_torch_array(value):
-        print("Converting array to numpy for HDF5 storage.")
         return to_numpy(value)
     if isinstance(value, CallHistory):
         return value.to_dict(list_to_dict=True)

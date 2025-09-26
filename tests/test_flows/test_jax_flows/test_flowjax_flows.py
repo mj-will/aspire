@@ -47,7 +47,6 @@ def test_zuko_flow():
 def test_flowjax_save_and_load(tmp_path):
     key = jax.random.key(42)
     key, flow_key = jax.random.split(key)
-    print(flow_key)
     flow = FlowJax(
         dims=2,
         key=flow_key,

@@ -475,7 +475,6 @@ class LogitTransform(BaseTransform):
     requires_prior_bounds: bool = True
 
     def __init__(self, lower, upper, xp, eps=1e-6, dtype=None):
-        print(dtype, type(dtype))
         super().__init__(xp=xp, dtype=dtype)
         self.lower = xp.asarray(lower, dtype=self.dtype)
         self.upper = xp.asarray(upper, dtype=self.dtype)
