@@ -219,7 +219,7 @@ def logsumexp(x: Array, axis: int | None = None) -> Array:
 def to_numpy(x: Array, **kwargs) -> np.ndarray:
     """Convert an array to a numpy array.
 
-    This automatically moves the device to the CPU.
+    This automatically moves the array to the CPU.
 
     Parameters
     ----------
@@ -230,7 +230,7 @@ def to_numpy(x: Array, **kwargs) -> np.ndarray:
     """
     try:
         return np.asarray(to_device(x, "cpu"), **kwargs)
-    except ValueError:
+    except (ValueError, NotImplementedError):
         return np.asarray(x, **kwargs)
 
 
@@ -321,6 +321,59 @@ def disable_gradients(xp, inference: bool = True):
         yield
 
 
+def encode_dtype(xp, dtype):
+    """Encode a dtype for storage in an HDF5 file.
+
+    Parameters
+    ----------
+    xp : module
+        The array API module to use.
+    dtype : dtype
+        The dtype to encode.
+
+    Returns
+    -------
+    str
+        The encoded dtype.
+    """
+    if dtype is None:
+        return None
+    return {
+        "__dtype__": True,
+        "xp": xp.__name__,
+        "dtype": str(dtype),
+    }
+
+
+def decode_dtype(xp, encoded_dtype):
+    """Decode a dtype from an HDF5 file.
+
+    Parameters
+    ----------
+    xp : module
+        The array API module to use.
+    encoded_dtype : dict
+        The encoded dtype.
+
+    Returns
+    -------
+    dtype
+        The decoded dtype.
+    """
+    if isinstance(encoded_dtype, dict) and encoded_dtype.get("__dtype__"):
+        if encoded_dtype["xp"] != xp.__name__:
+            raise ValueError(
+                f"Encoded dtype xp {encoded_dtype['xp']} does not match "
+                f"current xp {xp.__name__}"
+            )
+        if is_torch_namespace(xp):
+            return getattr(xp, encoded_dtype["dtype"].split(".")[-1])
+        else:
+            return xp.dtype(encoded_dtype["dtype"].split(".")[-1])
+    else:
+        return encoded_dtype
+
+
 def encode_for_hdf5(value: Any) -> Any:
     """Encode a value for storage in an HDF5 file.
 
@@ -328,6 +381,9 @@ def encode_for_hdf5(value: Any) -> Any:
     - None is replaced with "__none__"
     - Empty dictionaries are replaced with "__empty_dict__"
     """
+    if is_jax_array(value) or is_torch_array(value):
+        print("Converting array to numpy for HDF5 storage.")
+        return to_numpy(value)
     if isinstance(value, CallHistory):
         return value.to_dict(list_to_dict=True)
     if isinstance(value, np.ndarray):
@@ -335,6 +391,9 @@ def encode_for_hdf5(value: Any) -> Any:
     if isinstance(value, (int, float, str)):
         return value
     if isinstance(value, (list, tuple)):
+        if all(isinstance(v, str) for v in value):
+            dt = h5py.string_dtype(encoding="utf-8")
+            return np.array(value, dtype=dt)
         return [encode_for_hdf5(v) for v in value]
     if isinstance(value, set):
         return {encode_for_hdf5(v) for v in value}
@@ -345,23 +404,89 @@ def encode_for_hdf5(value: Any) -> Any:
             return {k: encode_for_hdf5(v) for k, v in value.items()}
     if value is None:
         return "__none__"
+
+    return value
+
+
+def decode_from_hdf5(value: Any) -> Any:
+    """Decode a value loaded from an HDF5 file, reversing encode_for_hdf5."""
+    if isinstance(value, bytes):  # HDF5 may store strings as bytes
+        value = value.decode("utf-8")
+
+    if isinstance(value, str):
+        if value == "__none__":
+            return None
+        if value == "__empty_dict__":
+            return {}
+
+    if isinstance(value, np.ndarray):
+        # Try to collapse 0-D arrays into scalars
+        if value.shape == ():
+            return value.item()
+        if value.dtype.kind in {"S", "O"}:
+            try:
+                return value.astype(str).tolist()
+            except Exception:
+                # fallback: leave as ndarray
+                return value
+        return value
+
+    if isinstance(value, list):
+        return [decode_from_hdf5(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(decode_from_hdf5(v) for v in value)
+    if isinstance(value, set):
+        return {decode_from_hdf5(v) for v in value}
+    if isinstance(value, dict):
+        return {
+            k.decode("utf-8"): decode_from_hdf5(v) for k, v in value.items()
+        }
+
+    # Fallback for ints, floats, strs, etc.
     return value
 
 
 def recursively_save_to_h5_file(h5_file, path, dictionary):
-    """Recursively save a dictionary to an HDF5 file."""
-    for key, value in dictionary.items():
-        if isinstance(value, dict):
-            recursively_save_to_h5_file(h5_file, f"{path}/{key}", value)
-        else:
-            try:
-                h5_file.create_dataset(
-                    f"{path}/{key}", data=encode_for_hdf5(value)
-                )
-            except TypeError as error:
-                raise RuntimeError(
-                    f"Cannot save key {key} with value {value} to HDF5 file."
-                ) from error
+    """Save a dictionary to an HDF5 file with flattened keys under a given group path."""
+    # Ensure the group exists (or open it if already present)
+    group = h5_file.require_group(path)
+
+    def _save_flattened(g, prefix, d):
+        for key, value in d.items():
+            full_key = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                _save_flattened(g, full_key, value)
+            else:
+                try:
+                    g.create_dataset(full_key, data=encode_for_hdf5(value))
+                except TypeError as error:
+                    try:
+                        # Try saving as a string
+                        dt = h5py.string_dtype(encoding="utf-8")
+                        g.create_dataset(
+                            full_key, data=np.array(str(value), dtype=dt)
+                        )
+                    except Exception:
+                        raise RuntimeError(
+                            f"Cannot save key {full_key} with value {value} to HDF5 file."
+                        ) from error
+
+    _save_flattened(group, "", dictionary)
+
+
+def load_from_h5_file(h5_file, path):
+    """Load a flattened dictionary from an HDF5 group and rebuild nesting."""
+    group = h5_file[path]
+    result = {}
+
+    for key, dataset in group.items():
+        parts = key.split(".")
+        d = result
+        for part in parts[:-1]:
+            d = d.setdefault(part, {})
+        d[parts[-1]] = decode_from_hdf5(dataset[()])
+
+    return result
 
 
 def get_package_version(package_name: str) -> str:
@@ -394,7 +519,15 @@ class AspireFile(h5py.File):
     def _set_aspire_metadata(self):
         from . import __version__ as aspire_version
 
-        self.attrs["aspire_version"] = aspire_version
+        if self.mode in {"w", "w-", "a", "r+"}:
+            self.attrs["aspire_version"] = aspire_version
+        else:
+            aspire_version = self.attrs.get("aspire_version", "unknown")
+            if aspire_version != "unknown":
+                logger.warning(
+                    f"Opened Aspire file created with version {aspire_version}. "
+                    f"Current version is {aspire_version}."
+                )
 
 
 def update_at_indices(x: Array, slc: Array, y: Array) -> Array:
