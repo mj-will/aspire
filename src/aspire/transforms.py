@@ -1,12 +1,15 @@
+import importlib
 import logging
 import math
 from typing import Any
 
+import h5py
 from array_api_compat import device as get_device
 from array_api_compat import is_torch_namespace
 
 from .flows import get_flow_wrapper
 from .utils import (
+    asarray,
     copy_array,
     logit,
     sigmoid,
@@ -43,6 +46,74 @@ class BaseTransform:
 
     def inverse(self, y):
         raise NotImplementedError("Subclasses must implement inverse method.")
+
+    def config_dict(self):
+        """Return the configuration of the transform as a dictionary."""
+        return {
+            "xp": self.xp.__name__,
+            "dtype": str(self.dtype) if self.dtype else None,
+        }
+
+    def save(self, h5_file: h5py.File, path: str = "data_transform"):
+        """Save config + any fitted state into an HDF5 file."""
+        from .utils import encode_dtype, recursively_save_to_h5_file
+
+        # store class name for reconstruction
+        grp = h5_file.create_group(path)
+        grp.attrs["class"] = self.__class__.__name__
+        # store config as JSON
+        config = self.config_dict()
+        config["dtype"] = encode_dtype(self.xp, config["dtype"])
+        recursively_save_to_h5_file(grp, "config", config)
+        # store any fitted arrays
+        self._save_state(grp)
+
+    @classmethod
+    def load(
+        cls,
+        h5_file: h5py.File,
+        path: str = "data_transform",
+        strict: bool = False,
+    ):
+        """Reconstruct transform from file.
+
+        Parameters
+        ----------
+        h5_file : h5py.File
+            The HDF5 file to load from.
+        path : str, optional
+            The path in the HDF5 file where the transform is stored.
+        strict : bool, optional
+            If True, raise an error if the class in the file does not match cls.
+            If False, load the class specified in the file. Default is False.
+        """
+        from .utils import decode_dtype, load_from_h5_file
+
+        grp = h5_file[path]
+        class_name = grp.attrs["class"]
+        if class_name != cls.__name__:
+            if strict:
+                raise ValueError(
+                    f"Expected class {cls.__name__}, got {class_name}."
+                )
+            else:
+                cls = getattr(importlib.import_module(__name__), class_name)
+                logger.info(
+                    f"Loading class {class_name} instead of {cls.__name__}."
+                )
+
+        config = load_from_h5_file(grp, "config")
+        config["xp"] = importlib.import_module(config["xp"])
+        config["dtype"] = decode_dtype(config["xp"], config["dtype"])
+        obj = cls(**config)
+        obj._load_state(grp)
+        return obj
+
+    def _save_state(self, h5_file: h5py.File):
+        pass
+
+    def _load_state(self, h5_file: h5py.File):
+        pass
 
 
 class IdentityTransform(BaseTransform):
@@ -250,6 +321,28 @@ class CompositeTransform(BaseTransform):
             eps=self.eps,
         )
 
+    def _save_state(self, h5_file):
+        if self.affine_transform:
+            affine_grp = h5_file.create_group("affine_transform")
+            self._affine_transform._save_state(affine_grp)
+
+    def _load_state(self, h5_file):
+        if self.affine_transform:
+            affine_grp = h5_file["affine_transform"]
+            self._affine_transform._load_state(affine_grp)
+
+    def config_dict(self):
+        return super().config_dict() | {
+            "parameters": self.parameters,
+            "periodic_parameters": self.periodic_parameters,
+            "prior_bounds": self.prior_bounds,
+            "bounded_to_unbounded": self.bounded_to_unbounded,
+            "bounded_transform": self.bounded_transform,
+            "affine_transform": self.affine_transform,
+            "eps": self.eps,
+            "device": self.device,
+        }
+
 
 class FlowTransform(CompositeTransform):
     """Subclass of CompositeTransform that uses a Flow for transformations.
@@ -293,6 +386,13 @@ class FlowTransform(CompositeTransform):
             eps=self.eps,
         )
 
+    def config_dict(self):
+        cfg = super().config_dict()
+        cfg.pop(
+            "periodic_parameters", None
+        )  # Remove periodic_parameters from config
+        return cfg
+
 
 class PeriodicTransform(BaseTransform):
     name: str = "periodic"
@@ -300,9 +400,9 @@ class PeriodicTransform(BaseTransform):
 
     def __init__(self, lower, upper, xp, dtype=None):
         super().__init__(xp=xp, dtype=dtype)
-        self.lower = xp.asarray(lower, dtype=dtype)
-        self.upper = xp.asarray(upper, dtype=dtype)
-        self._width = upper - lower
+        self.lower = xp.asarray(lower, dtype=self.dtype)
+        self.upper = xp.asarray(upper, dtype=self.dtype)
+        self._width = self.upper - self.lower
         self._shift = None
 
     def fit(self, x):
@@ -316,17 +416,25 @@ class PeriodicTransform(BaseTransform):
         x = self.lower + (y - self.lower) % self._width
         return x, self.xp.zeros(x.shape[0], device=get_device(x))
 
+    def config_dict(self):
+        return super().config_dict() | {
+            "lower": self.lower.tolist(),
+            "upper": self.upper.tolist(),
+        }
+
 
 class ProbitTransform(BaseTransform):
     name: str = "probit"
     requires_prior_bounds: bool = True
 
     def __init__(self, lower, upper, xp, eps=1e-6, dtype=None):
-        self.lower = xp.asarray(lower, dtype=dtype)
-        self.upper = xp.asarray(upper, dtype=dtype)
-        self._scale_log_abs_det_jacobian = -xp.log(upper - lower).sum()
+        super().__init__(xp=xp, dtype=dtype)
+        self.lower = xp.asarray(lower, dtype=self.dtype)
+        self.upper = xp.asarray(upper, dtype=self.dtype)
+        self._scale_log_abs_det_jacobian = -xp.log(
+            self.upper - self.lower
+        ).sum()
         self.eps = eps
-        self.xp = xp
 
     def fit(self, x):
         return self.forward(x)[0]
@@ -354,17 +462,27 @@ class ProbitTransform(BaseTransform):
         x = (self.upper - self.lower) * x + self.lower
         return x, log_abs_det_jacobian
 
+    def config_dict(self):
+        return super().config_dict() | {
+            "lower": self.lower.tolist(),
+            "upper": self.upper.tolist(),
+            "eps": self.eps,
+        }
+
 
 class LogitTransform(BaseTransform):
     name: str = "logit"
     requires_prior_bounds: bool = True
 
     def __init__(self, lower, upper, xp, eps=1e-6, dtype=None):
-        self.lower = xp.asarray(lower, dtype=dtype)
-        self.upper = xp.asarray(upper, dtype=dtype)
-        self._scale_log_abs_det_jacobian = -xp.log(upper - lower).sum()
+        print(dtype, type(dtype))
+        super().__init__(xp=xp, dtype=dtype)
+        self.lower = xp.asarray(lower, dtype=self.dtype)
+        self.upper = xp.asarray(upper, dtype=self.dtype)
+        self._scale_log_abs_det_jacobian = -xp.log(
+            self.upper - self.lower
+        ).sum()
         self.eps = eps
-        self.xp = xp
 
     def fit(self, x):
         return self.forward(x)[0]
@@ -381,15 +499,22 @@ class LogitTransform(BaseTransform):
         x = (self.upper - self.lower) * x + self.lower
         return x, log_abs_det_jacobian
 
+    def config_dict(self):
+        return super().config_dict() | {
+            "lower": self.lower,
+            "upper": self.upper,
+            "eps": self.eps,
+        }
+
 
 class AffineTransform(BaseTransform):
     name: str = "affine"
     requires_prior_bounds: bool = False
 
-    def __init__(self, xp):
+    def __init__(self, xp, dtype=None):
+        super().__init__(xp=xp, dtype=dtype)
         self._mean = None
         self._std = None
-        self.xp = xp
 
     def fit(self, x):
         self._mean = x.mean(0)
@@ -408,6 +533,18 @@ class AffineTransform(BaseTransform):
         return x, -self.log_abs_det_jacobian * self.xp.ones(
             y.shape[0], device=get_device(y)
         )
+
+    def config_dict(self):
+        return super().config_dict()
+
+    def _save_state(self, h5_file):
+        h5_file.create_dataset("mean", data=self._mean)
+        h5_file.create_dataset("std", data=self._std)
+
+    def _load_state(self, h5_file):
+        self._mean = asarray(h5_file["mean"][()], xp=self.xp)
+        self._std = asarray(h5_file["std"][()], xp=self.xp)
+        self.log_abs_det_jacobian = -self.xp.log(self.xp.abs(self._std)).sum()
 
 
 class FlowPreconditioningTransform(BaseTransform):
@@ -495,4 +632,9 @@ class FlowPreconditioningTransform(BaseTransform):
             flow_matching=self.flow_matching,
             flow_kwargs=self.flow_kwargs,
             fit_kwargs=self.fit_kwargs,
+        )
+
+    def save(self, h5_file, path="data_transform"):
+        raise NotImplementedError(
+            "FlowPreconditioningTransform does not support save method yet."
         )
