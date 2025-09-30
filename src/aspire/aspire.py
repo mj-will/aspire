@@ -50,7 +50,7 @@ class Aspire:
         The array backend to use. If None, the default backend will be
         used.
     flow : Flow | None
-        The flow object, if it already exists. 
+        The flow object, if it already exists.
         If None, a new flow will be created.
     flow_backend : str
         The backend to use for the flow. Options are 'zuko' or 'flowjax'.
@@ -103,7 +103,7 @@ class Aspire:
     def flow(self):
         """The normalizing flow object."""
         return self._flow
-    
+
     @flow.setter
     def flow(self, flow: Flow):
         """Set the normalizing flow object."""
