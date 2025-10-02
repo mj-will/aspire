@@ -50,6 +50,7 @@ blackjax = [
 test = [
     "pytest",
     "pytest-requires",
+    "pytest-cov",
 ]
 
 [project.urls]
@@ -69,3 +70,7 @@ target-version = "py39"
 # Allow fix for all enabled rules (when `--fix`) is provided.
 fixable = ["ALL"]
 extend-select = ["I"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=aspire --cov-report=term-missing -ra"
+testpaths = ["tests"]
