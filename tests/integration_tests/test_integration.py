@@ -1,5 +1,7 @@
 import pytest
+
 from aspire import Aspire
+from aspire.utils import AspireFile
 
 
 def test_integration_zuko(
@@ -11,6 +13,7 @@ def test_integration_zuko(
     prior_bounds,
     bounded_to_unbounded,
     sampler_config,
+    tmp_path,
 ):
     if sampler_config.sampler == "blackjax_smc":
         pytest.xfail(reason="BlackJAX requires JAX arrays.")
@@ -31,6 +34,10 @@ def test_integration_zuko(
         sampler=sampler_config.sampler,
         **sampler_config.sampler_kwargs,
     )
+    with AspireFile(tmp_path / "test_integration_zuko.h5", "w") as h5_file:
+        aspire.save_config(h5_file)
+        aspire.save_flow(h5_file)
+        samples.save(h5_file, path="posterior_samples")
 
 
 @pytest.mark.requires("flowjax")
@@ -44,6 +51,7 @@ def test_integration_flowjax(
     bounded_to_unbounded,
     samples_backend,
     sampler_config,
+    tmp_path,
 ):
     import jax
 
@@ -62,11 +70,16 @@ def test_integration_flowjax(
         key=jax.random.key(0),
     )
     aspire.fit(samples, max_epochs=5)
-    aspire.sample_posterior(
+    posterior_samples = aspire.sample_posterior(
         n_samples=100,
         sampler=sampler_config.sampler,
         **sampler_config.sampler_kwargs,
     )
+
+    with AspireFile(tmp_path / "test_integration_flowjax.h5", "w") as h5_file:
+        aspire.save_config(h5_file)
+        aspire.save_flow(h5_file)
+        posterior_samples.save(h5_file, path="posterior_samples")
 
 
 def test_init_existing_flow(

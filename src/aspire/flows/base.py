@@ -1,3 +1,4 @@
+import inspect
 import logging
 from typing import Any
 
@@ -45,3 +46,39 @@ class Flow:
 
     def inverse_rescale(self, x):
         return self.data_transform.inverse(x)
+
+    def config_dict(self):
+        """Return a dictionary of the configuration of the flow.
+
+        This can be used to recreate the flow by passing the dictionary
+        as keyword arguments to the constructor.
+
+        This is automatically populated with the arguments passed to the
+        constructor.
+
+        Returns
+        -------
+        config : dict
+            The configuration dictionary.
+        """
+        return getattr(self, "_init_args", {})
+
+    def save(self, h5_file, path="flow"):
+        raise NotImplementedError
+
+    @classmethod
+    def load(cls, h5_file, path="flow"):
+        raise NotImplementedError
+
+    def __new__(cls, *args, **kwargs):
+        # Create instance
+        obj = super().__new__(cls)
+        # Inspect the subclass's __init__ signature
+        sig = inspect.signature(cls.__init__)
+        bound = sig.bind_partial(obj, *args, **kwargs)
+        bound.apply_defaults()
+        # Save args (excluding self)
+        obj._init_args = {
+            k: v for k, v in bound.arguments.items() if k != "self"
+        }
+        return obj

@@ -407,17 +407,17 @@ class Aspire:
             method of the sampler.
         """
         config = {
-            # "log_likelihood": self.log_likelihood,
-            # "log_prior": self.log_prior,
+            "log_likelihood": self.log_likelihood.__name__,
+            "log_prior": self.log_prior.__name__,
             "dims": self.dims,
             "parameters": self.parameters,
             "periodic_parameters": self.periodic_parameters,
             "prior_bounds": self.prior_bounds,
             "bounded_to_unbounded": self.bounded_to_unbounded,
-            # "bounded_transform": self.bounded_transform,
+            "bounded_transform": self.bounded_transform,
             "flow_matching": self.flow_matching,
-            # "device": self.device,
-            # "xp": self.xp,
+            "device": self.device,
+            "xp": self.xp.__name__ if self.xp else None,
             "flow_backend": self.flow_backend,
             "flow_kwargs": self.flow_kwargs,
             "eps": self.eps,
@@ -446,6 +446,35 @@ class Aspire:
             path,
             self.config_dict(**kwargs),
         )
+
+    def save_flow(self, h5_file: h5py.File, path="flow") -> None:
+        """Save the flow to an HDF5 file.
+
+        Parameters
+        ----------
+        h5_file : h5py.File
+            The HDF5 file to save the flow to.
+        path : str
+            The path in the HDF5 file to save the flow to.
+        """
+        if self.flow is None:
+            raise ValueError("Flow has not been initialized.")
+        self.flow.save(h5_file, path=path)
+
+    def load_flow(self, h5_file: h5py.File, path="flow") -> None:
+        """Load the flow from an HDF5 file.
+
+        Parameters
+        ----------
+        h5_file : h5py.File
+            The HDF5 file to load the flow from.
+        path : str
+            The path in the HDF5 file to load the flow from.
+        """
+        FlowClass, xp = get_flow_wrapper(
+            backend=self.flow_backend, flow_matching=self.flow_matching
+        )
+        self._flow = FlowClass.load(h5_file, path=path)
 
     def save_config_to_json(self, filename: str) -> None:
         """Save the configuration to a JSON file."""

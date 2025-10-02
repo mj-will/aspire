@@ -6,11 +6,12 @@ likelihood with a uniform prior.
 import math
 from pathlib import Path
 
+from scipy.stats import norm, uniform
+
 from aspire import Aspire
 from aspire.plot import plot_comparison
 from aspire.samples import Samples
 from aspire.utils import AspireFile, configure_logger
-from scipy.stats import norm, uniform
 
 # Configure the logger
 configure_logger("INFO")
@@ -71,6 +72,8 @@ with AspireFile(outdir / "aspire_result.h5", "w") as f:
     aspire.save_config(f, "aspire_config")
     samples.save(f, "posterior_samples")
     history.save(f, "flow_history")
+    # Save the flow
+    aspire.save_flow(f, "flow")
 
 fig = plot_comparison(
     initial_samples,
