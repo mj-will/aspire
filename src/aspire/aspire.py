@@ -6,6 +6,7 @@ from typing import Any, Callable
 import h5py
 
 from .flows import get_flow_wrapper
+from .flows.base import Flow
 from .history import History
 from .samples import Samples
 from .transforms import (
@@ -48,6 +49,9 @@ class Aspire:
     xp : Callable | None
         The array backend to use. If None, the default backend will be
         used.
+    flow : Flow | None
+        The flow object, if it already exists.
+        If None, a new flow will be created.
     flow_backend : str
         The backend to use for the flow. Options are 'zuko' or 'flowjax'.
     flow_matching : bool
@@ -71,6 +75,7 @@ class Aspire:
         bounded_transform: str = "logit",
         device: str | None = None,
         xp: Callable | None = None,
+        flow: Flow | None = None,
         flow_backend: str = "zuko",
         flow_matching: bool = False,
         eps: float = 1e-6,
@@ -92,12 +97,17 @@ class Aspire:
         self.flow_kwargs = kwargs
         self.xp = xp
 
-        self._flow = None
+        self._flow = flow
 
     @property
     def flow(self):
         """The normalizing flow object."""
         return self._flow
+
+    @flow.setter
+    def flow(self, flow: Flow):
+        """Set the normalizing flow object."""
+        self._flow = flow
 
     @property
     def sampler(self):
