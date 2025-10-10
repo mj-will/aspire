@@ -400,8 +400,11 @@ class Samples(BaseSamples):
 @dataclass
 class SMCSamples(BaseSamples):
     beta: float | None = None
-    log_evidence: float | None = None
     """Temperature parameter for the current samples."""
+    log_evidence: float | None = None
+    """Log evidence estimate for the current samples."""
+    log_evidence_error: float | None = None
+    """Log evidence error estimate for the current samples."""
 
     def log_p_t(self, beta):
         log_p_T = self.log_likelihood + self.log_prior
@@ -487,4 +490,5 @@ class SMCSamples(BaseSamples):
             sliced,
             beta=self.beta,
             log_evidence=self.log_evidence,
+            log_evidence_error=self.log_evidence_error,
         )
