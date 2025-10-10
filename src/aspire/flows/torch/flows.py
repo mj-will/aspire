@@ -159,9 +159,11 @@ class ZukoFlow(BaseTorchFlow):
         )
 
         if torch.isnan(x_train).any():
-            raise ValueError("Training data contains NaN values.")
+            dims_with_nan = torch.isnan(x_train).any(dim=0).nonzero(as_tuple=True)[0]
+            raise ValueError(f"Training data contains NaN values in dimensions: {dims_with_nan.tolist()}")
         if not torch.isfinite(x_train).all():
-            raise ValueError("Training data contains infinite values.")
+            dims_with_inf = (~torch.isfinite(x_train)).any(dim=0).nonzero(as_tuple=True)[0]
+            raise ValueError(f"Training data contains infinite values in dimensions: {dims_with_inf.tolist()}")
 
         x_val = torch.as_tensor(
             x_prime[-int(validation_fraction * n) :],
