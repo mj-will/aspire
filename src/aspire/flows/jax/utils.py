@@ -29,8 +29,11 @@ def get_flow(
     flow_type: str | Callable = "masked_autoregressive_flow",
     bijection_type: str | flowjax.bijections.AbstractBijection | None = None,
     bijection_kwargs: dict | None = None,
+    dtype=None,
     **kwargs,
 ) -> flowjax.distributions.Transformed:
+    dtype = dtype or jnp.float32
+
     if isinstance(flow_type, str):
         flow_type = get_flow_function_class(flow_type)
 
@@ -44,7 +47,7 @@ def get_flow(
     if bijection_kwargs is None:
         bijection_kwargs = {}
 
-    base_dist = flowjax.distributions.Normal(jnp.zeros(dims))
+    base_dist = flowjax.distributions.Normal(jnp.zeros(dims, dtype=dtype))
     key, subkey = jrandom.split(key)
     return flow_type(
         subkey,

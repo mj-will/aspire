@@ -15,7 +15,7 @@ class MCMCSampler(Sampler):
         while n_samples_drawn < n_samples:
             n_to_draw = n_samples - n_samples_drawn
             x, log_q = self.prior_flow.sample_and_log_prob(n_to_draw)
-            new_samples = Samples(x, xp=self.xp, log_q=log_q)
+            new_samples = Samples(x, xp=self.xp, log_q=log_q, dtype=self.dtype)
             new_samples.log_prior = new_samples.array_to_namespace(
                 self.log_prior(new_samples)
             )
@@ -44,7 +44,7 @@ class MCMCSampler(Sampler):
         Input samples are in the transformed space.
         """
         x, log_abs_det_jacobian = self.preconditioning_transform.inverse(z)
-        samples = Samples(x, xp=self.xp)
+        samples = Samples(x, xp=self.xp, dtype=self.dtype)
         samples.log_prior = self.log_prior(samples)
         samples.log_likelihood = self.log_likelihood(samples)
         log_prob = (
@@ -94,7 +94,9 @@ class Emcee(MCMCSampler):
         samples_evidence.log_likelihood = self.log_likelihood(samples_evidence)
         samples_evidence.compute_weights()
 
-        samples_mcmc = Samples(x, xp=self.xp, parameters=self.parameters)
+        samples_mcmc = Samples(
+            x, xp=self.xp, parameters=self.parameters, dtype=self.dtype
+        )
         samples_mcmc.log_prior = samples_mcmc.array_to_namespace(
             self.log_prior(samples_mcmc)
         )

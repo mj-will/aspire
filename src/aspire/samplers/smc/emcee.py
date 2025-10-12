@@ -62,7 +62,7 @@ class EmceeSMC(NumpySMCSampler):
         )
         z = sampler.get_chain(flat=False)[-1, ...]
         x = self.preconditioning_transform.inverse(z)[0]
-        samples = SMCSamples(x, xp=self.xp, beta=beta)
+        samples = SMCSamples(x, xp=self.xp, beta=beta, dtype=self.dtype)
         samples.log_q = samples.array_to_namespace(
             self.prior_flow.log_prob(samples.x)
         )

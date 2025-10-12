@@ -1,5 +1,5 @@
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 import array_api_compat.numpy as np
 
@@ -27,6 +27,7 @@ class SMCSampler(MCMCSampler):
         dims: int,
         prior_flow: Flow,
         xp: Callable,
+        dtype: Any | str | None = None,
         parameters: list[str] | None = None,
         rng: np.random.Generator | None = None,
         preconditioning_transform: Callable | None = None,
@@ -37,6 +38,7 @@ class SMCSampler(MCMCSampler):
             dims=dims,
             prior_flow=prior_flow,
             xp=xp,
+            dtype=dtype,
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
@@ -158,7 +160,9 @@ class SMCSampler(MCMCSampler):
         n_final_samples: int | None = None,
     ) -> SMCSamples:
         samples = self.draw_initial_samples(n_samples)
-        samples = SMCSamples.from_samples(samples, xp=self.xp, beta=0.0)
+        samples = SMCSamples.from_samples(
+            samples, xp=self.xp, beta=0.0, dtype=self.dtype
+        )
         self.fit_preconditioning_transform(samples.x)
 
         if self.xp.isnan(samples.log_q).any():
@@ -271,7 +275,7 @@ class SMCSampler(MCMCSampler):
 
     def log_prob(self, z, beta=None):
         x, log_abs_det_jacobian = self.preconditioning_transform.inverse(z)
-        samples = SMCSamples(x, xp=self.xp)
+        samples = SMCSamples(x, xp=self.xp, beta=beta, dtype=self.dtype)
         log_q = self.prior_flow.log_prob(samples.x)
         samples.log_q = samples.array_to_namespace(log_q)
         samples.log_prior = self.log_prior(samples)
@@ -294,6 +298,7 @@ class NumpySMCSampler(SMCSampler):
         dims,
         prior_flow,
         xp,
+        dtype=None,
         parameters=None,
         preconditioning_transform=None,
     ):
@@ -305,8 +310,9 @@ class NumpySMCSampler(SMCSampler):
             log_likelihood,
             log_prior,
             dims,
-            prior_flow,
-            xp,
+            prior_flow=prior_flow,
+            xp=xp,
+            dtype=dtype,
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )

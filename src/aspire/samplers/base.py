@@ -1,5 +1,5 @@
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 from ..flows.base import Flow
 from ..samples import Samples
@@ -36,6 +36,7 @@ class Sampler:
         dims: int,
         prior_flow: Flow,
         xp: Callable,
+        dtype: Any | str | None = None,
         parameters: list[str] | None = None,
         preconditioning_transform: Callable | None = None,
     ):
@@ -44,6 +45,7 @@ class Sampler:
         self.log_prior = log_prior
         self.dims = dims
         self.xp = xp
+        self.dtype = dtype
         self.parameters = parameters
         self.history = None
         self.n_likelihood_evaluations = 0

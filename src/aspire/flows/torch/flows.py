@@ -9,6 +9,8 @@ import zuko
 from array_api_compat import is_numpy_namespace, is_torch_array
 
 from ...history import FlowHistory
+from ...transforms import IdentityTransform
+from ...utils import decode_dtype, encode_dtype, resolve_dtype
 from ..base import Flow
 
 logger = logging.getLogger(__name__)
@@ -24,12 +26,23 @@ class BaseTorchFlow(Flow):
         seed: int = 1234,
         device: str = "cpu",
         data_transform=None,
+        dtype=None,
     ):
+        resolved_dtype = (
+            resolve_dtype(dtype, torch)
+            if dtype is not None
+            else torch.get_default_dtype()
+        )
+        if data_transform is None:
+            data_transform = IdentityTransform(self.xp, dtype=resolved_dtype)
+        elif getattr(data_transform, "dtype", None) is None:
+            data_transform.dtype = resolved_dtype
         super().__init__(
             dims,
             device=torch.device(device or "cpu"),
             data_transform=data_transform,
         )
+        self.dtype = resolved_dtype
         torch.manual_seed(seed)
         self.loc = None
         self.scale = None
@@ -41,7 +54,7 @@ class BaseTorchFlow(Flow):
     @flow.setter
     def flow(self, flow):
         self._flow = flow
-        self._flow.to(self.device)
+        self._flow.to(device=self.device, dtype=self.dtype)
         self._flow.compile()
 
     def fit(self, x) -> FlowHistory:
@@ -53,8 +66,14 @@ class BaseTorchFlow(Flow):
 
         flow_grp = h5_file.create_group(path)
         # Save config
-        config = self.config_dict()
+        config = self.config_dict().copy()
         data_transform = config.pop("data_transform", None)
+        dtype_value = config.get("dtype")
+        if dtype_value is None:
+            dtype_value = self.dtype
+        else:
+            dtype_value = resolve_dtype(dtype_value, torch)
+        config["dtype"] = encode_dtype(torch, dtype_value)
         if data_transform is not None:
             data_transform.save(flow_grp, "data_transform")
         recursively_save_to_h5_file(flow_grp, "config", config)
@@ -71,6 +90,7 @@ class BaseTorchFlow(Flow):
         flow_grp = h5_file[path]
         # Load config
         config = load_from_h5_file(flow_grp, "config")
+        config["dtype"] = decode_dtype(torch, config.get("dtype"))
         if "data_transform" in flow_grp:
             from ..transforms import BaseTransform
 
@@ -98,6 +118,7 @@ class ZukoFlow(BaseTorchFlow):
         data_transform=None,
         seed=1234,
         device: str = "cpu",
+        dtype=None,
         **kwargs,
     ):
         super().__init__(
@@ -105,6 +126,7 @@ class ZukoFlow(BaseTorchFlow):
             device=device,
             data_transform=data_transform,
             seed=seed,
+            dtype=dtype,
         )
 
         if isinstance(flow_class, str):
@@ -135,12 +157,10 @@ class ZukoFlow(BaseTorchFlow):
         from ...history import FlowHistory
 
         if not is_torch_array(x):
-            x = torch.tensor(
-                x, dtype=torch.get_default_dtype(), device=self.device
-            )
+            x = torch.tensor(x, dtype=self.dtype, device=self.device)
         else:
             x = torch.clone(x)
-            x = x.type(torch.get_default_dtype())
+            x = x.type(self.dtype)
             x = x.to(self.device)
         x_prime = self.fit_data_transform(x)
         indices = torch.randperm(x_prime.shape[0])
@@ -149,7 +169,7 @@ class ZukoFlow(BaseTorchFlow):
         n = x_prime.shape[0]
         x_train = torch.as_tensor(
             x_prime[: -int(validation_fraction * n)],
-            dtype=torch.get_default_dtype(),
+            dtype=self.dtype,
             device=self.device,
         )
 
@@ -159,15 +179,23 @@ class ZukoFlow(BaseTorchFlow):
         )
 
         if torch.isnan(x_train).any():
-            dims_with_nan = torch.isnan(x_train).any(dim=0).nonzero(as_tuple=True)[0]
-            raise ValueError(f"Training data contains NaN values in dimensions: {dims_with_nan.tolist()}")
+            dims_with_nan = (
+                torch.isnan(x_train).any(dim=0).nonzero(as_tuple=True)[0]
+            )
+            raise ValueError(
+                f"Training data contains NaN values in dimensions: {dims_with_nan.tolist()}"
+            )
         if not torch.isfinite(x_train).all():
-            dims_with_inf = (~torch.isfinite(x_train)).any(dim=0).nonzero(as_tuple=True)[0]
-            raise ValueError(f"Training data contains infinite values in dimensions: {dims_with_inf.tolist()}")
+            dims_with_inf = (
+                (~torch.isfinite(x_train)).any(dim=0).nonzero(as_tuple=True)[0]
+            )
+            raise ValueError(
+                f"Training data contains infinite values in dimensions: {dims_with_inf.tolist()}"
+            )
 
         x_val = torch.as_tensor(
             x_prime[-int(validation_fraction * n) :],
-            dtype=torch.get_default_dtype(),
+            dtype=self.dtype,
             device=self.device,
         )
         if torch.isnan(x_val).any():
@@ -251,18 +279,14 @@ class ZukoFlow(BaseTorchFlow):
         return xp.asarray(x)
 
     def log_prob(self, x, xp=torch_api):
-        x = torch.as_tensor(
-            x, dtype=torch.get_default_dtype(), device=self.device
-        )
+        x = torch.as_tensor(x, dtype=self.dtype, device=self.device)
         x_prime, log_abs_det_jacobian = self.rescale(x)
         return xp.asarray(
             self._flow().log_prob(x_prime) + log_abs_det_jacobian
         )
 
     def forward(self, x, xp=torch_api):
-        x = torch.as_tensor(
-            x, dtype=torch.get_default_dtype(), device=self.device
-        )
+        x = torch.as_tensor(x, dtype=self.dtype, device=self.device)
         x_prime, log_j_rescale = self.rescale(x)
         z, log_abs_det_jacobian = self._flow().transform.call_and_ladj(x_prime)
         if is_numpy_namespace(xp):
@@ -273,9 +297,7 @@ class ZukoFlow(BaseTorchFlow):
         return xp.asarray(z), xp.asarray(log_abs_det_jacobian + log_j_rescale)
 
     def inverse(self, z, xp=torch_api):
-        z = torch.as_tensor(
-            z, dtype=torch.get_default_dtype(), device=self.device
-        )
+        z = torch.as_tensor(z, dtype=self.dtype, device=self.device)
         with torch.no_grad():
             x_prime, log_abs_det_jacobian = (
                 self._flow().transform.inv.call_and_ladj(z)
@@ -297,6 +319,7 @@ class ZukoFlowMatching(ZukoFlow):
         seed=1234,
         device="cpu",
         eta: float = 1e-3,
+        dtype=None,
         **kwargs,
     ):
         kwargs.setdefault("hidden_features", 4 * [100])
@@ -306,6 +329,7 @@ class ZukoFlowMatching(ZukoFlow):
             device=device,
             data_transform=data_transform,
             flow_class="CNF",
+            dtype=dtype,
         )
         self.eta = eta
 
