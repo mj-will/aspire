@@ -15,7 +15,14 @@ from array_api_compat import (
 from array_api_compat import device as api_device
 from array_api_compat.common._typing import Array
 
-from .utils import asarray, logsumexp, recursively_save_to_h5_file, to_numpy
+from .utils import (
+    asarray,
+    convert_dtype,
+    logsumexp,
+    recursively_save_to_h5_file,
+    resolve_dtype,
+    to_numpy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +36,31 @@ class BaseSamples:
     """
 
     x: Array
+    """Array of samples, shape (n_samples, n_dims)."""
     log_likelihood: Array | None = None
+    """Log-likelihood values for the samples."""
     log_prior: Array | None = None
+    """Log-prior values for the samples."""
     log_q: Array | None = None
+    """Log-probability values under the proposal distribution."""
     parameters: list[str] | None = None
+    """List of parameter names."""
+    dtype: Any | str | None = None
+    """Data type of the samples.
+
+    If None, the default dtype for the array namespace will be used.
+    """
     xp: Callable | None = None
+    """
+    The array namespace to use for the samples.
+
+    If None, the array namespace will be inferred from the type of :code:`x`.
+    """
     device: Any = None
+    """Device to store the samples on.
+
+    If None, the device will be inferred from the array namespace of :code:`x`.
+    """
 
     def __post_init__(self):
         if self.xp is None:
@@ -42,15 +68,24 @@ class BaseSamples:
         # Numpy arrays need to be on the CPU before being converted
         if is_numpy_namespace(self.xp):
             self.device = "cpu"
-        self.x = self.array_to_namespace(self.x)
+        if self.dtype is not None:
+            self.dtype = resolve_dtype(self.dtype, self.xp)
+        else:
+            # Fall back to default dtype for the array namespace
+            self.dtype = None
+        self.x = self.array_to_namespace(self.x, dtype=self.dtype)
         if self.device is None:
             self.device = api_device(self.x)
         if self.log_likelihood is not None:
-            self.log_likelihood = self.array_to_namespace(self.log_likelihood)
+            self.log_likelihood = self.array_to_namespace(
+                self.log_likelihood, dtype=self.dtype
+            )
         if self.log_prior is not None:
-            self.log_prior = self.array_to_namespace(self.log_prior)
+            self.log_prior = self.array_to_namespace(
+                self.log_prior, dtype=self.dtype
+            )
         if self.log_q is not None:
-            self.log_q = self.array_to_namespace(self.log_q)
+            self.log_q = self.array_to_namespace(self.log_q, dtype=self.dtype)
 
         if self.parameters is None:
             self.parameters = [f"x_{i}" for i in range(self.dims)]
@@ -62,37 +97,48 @@ class BaseSamples:
             return 0
         return self.x.shape[1] if self.x.ndim > 1 else 1
 
-    def to_numpy(self):
+    def to_numpy(self, dtype: Any | str | None = None):
         logger.debug("Converting samples to numpy arrays")
+        import array_api_compat.numpy as np
+
+        if dtype is not None:
+            dtype = resolve_dtype(dtype, np)
+        else:
+            dtype = convert_dtype(self.dtype, np)
         return self.__class__(
-            x=to_numpy(self.x),
+            x=self.x,
             parameters=self.parameters,
-            log_likelihood=to_numpy(self.log_likelihood)
-            if self.log_likelihood is not None
-            else None,
-            log_prior=to_numpy(self.log_prior)
-            if self.log_prior is not None
-            else None,
-            log_q=to_numpy(self.log_q) if self.log_q is not None else None,
+            log_likelihood=self.log_likelihood,
+            log_prior=self.log_prior,
+            log_q=self.log_q,
+            xp=np,
         )
 
-    def to_namespace(self, xp):
+    def to_namespace(self, xp, dtype: Any | str | None = None):
+        if dtype is None:
+            dtype = convert_dtype(self.dtype, xp)
+        else:
+            dtype = resolve_dtype(dtype, xp)
         logger.debug("Converting samples to {} namespace", xp)
         return self.__class__(
-            x=asarray(self.x, xp),
+            x=self.x,
             parameters=self.parameters,
-            log_likelihood=asarray(self.log_likelihood, xp)
-            if self.log_likelihood is not None
-            else None,
-            log_prior=asarray(self.log_prior, xp)
-            if self.log_prior is not None
-            else None,
-            log_q=asarray(self.log_q, xp) if self.log_q is not None else None,
+            log_likelihood=self.log_likelihood,
+            log_prior=self.log_prior,
+            log_q=self.log_q,
+            xp=xp,
+            device=self.device,
+            dtype=dtype,
         )
 
-    def array_to_namespace(self, x):
+    def array_to_namespace(self, x, dtype=None):
         """Convert an array to the same namespace as the samples"""
-        x = asarray(x, self.xp)
+        kwargs = {}
+        if dtype is not None:
+            kwargs["dtype"] = resolve_dtype(dtype, self.xp)
+        else:
+            kwargs["dtype"] = self.dtype
+        x = asarray(x, self.xp, **kwargs)
         if self.device:
             x = to_device(x, self.device)
         return x
@@ -132,8 +178,7 @@ class BaseSamples:
 
     def __str__(self):
         out = (
-            f"No. samples: {len(self.x)}\n"
-            f"No. parameters: {len(self.parameters)}\n"
+            f"No. samples: {len(self.x)}\nNo. parameters: {self.x.shape[-1]}\n"
         )
         return out
 
@@ -169,6 +214,7 @@ class BaseSamples:
             else None,
             log_q=self.log_q[idx] if self.log_q is not None else None,
             parameters=self.parameters,
+            dtype=self.dtype,
         )
 
     def __setitem__(self, idx, value: BaseSamples):
@@ -183,6 +229,8 @@ class BaseSamples:
             raise ValueError("Parameters do not match")
         if not all(s.xp == samples[0].xp for s in samples):
             raise ValueError("Array namespaces do not match")
+        if not all(s.dtype == samples[0].dtype for s in samples):
+            raise ValueError("Dtypes do not match")
         xp = samples[0].xp
         return cls(
             x=xp.concatenate([s.x for s in samples], axis=0),
@@ -198,6 +246,7 @@ class BaseSamples:
             if all(s.log_q is not None for s in samples)
             else None,
             parameters=samples[0].parameters,
+            dtype=samples[0].dtype,
         )
 
     @classmethod
@@ -205,6 +254,11 @@ class BaseSamples:
         """Create a Samples object from a BaseSamples object."""
         xp = kwargs.pop("xp", samples.xp)
         device = kwargs.pop("device", samples.device)
+        dtype = kwargs.pop("dtype", samples.dtype)
+        if dtype is not None:
+            dtype = resolve_dtype(dtype, xp)
+        else:
+            dtype = convert_dtype(samples.dtype, xp)
         return cls(
             x=samples.x,
             log_likelihood=samples.log_likelihood,
@@ -308,6 +362,7 @@ class Samples(BaseSamples):
             x=self.x[accept],
             log_likelihood=self.log_likelihood[accept],
             log_prior=self.log_prior[accept],
+            dtype=self.dtype,
         )
 
     def to_dict(self, flat: bool = True):
@@ -464,6 +519,7 @@ class SMCSamples(BaseSamples):
             log_prior=self.log_prior[idx],
             log_q=self.log_q[idx],
             beta=beta,
+            dtype=self.dtype,
         )
 
     def __str__(self):
