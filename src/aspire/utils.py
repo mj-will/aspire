@@ -253,6 +253,135 @@ def asarray(x, xp: Any = None, **kwargs) -> Array:
         return xp.asarray(x, **kwargs)
 
 
+def resolve_dtype(dtype: Any | str | None, xp: Any) -> Any | None:
+    """Resolve a dtype specification into an XP-specific dtype.
+
+    Parameters
+    ----------
+    dtype : Any | str | None
+        The dtype specification. Can be None, a string, or a dtype-like object.
+    xp : module
+        The array API module that should interpret the dtype.
+
+    Returns
+    -------
+    Any | None
+        The resolved dtype object compatible with ``xp`` (or None if unspecified).
+    """
+    if dtype is None or xp is None:
+        return dtype
+
+    if isinstance(dtype, str):
+        dtype_name = _dtype_to_name(dtype)
+        if is_torch_namespace(xp):
+            resolved = getattr(xp, dtype_name, None)
+            if resolved is None:
+                raise ValueError(
+                    f"Unknown dtype '{dtype}' for namespace {xp.__name__}"
+                )
+            return resolved
+        try:
+            return xp.dtype(dtype_name)
+        except (AttributeError, TypeError, ValueError):
+            resolved = getattr(xp, dtype_name, None)
+            if resolved is not None:
+                return resolved
+            raise ValueError(
+                f"Unknown dtype '{dtype}' for namespace {getattr(xp, '__name__', xp)}"
+            )
+
+    if is_torch_namespace(xp):
+        return dtype
+
+    try:
+        return xp.dtype(dtype)
+    except (AttributeError, TypeError, ValueError):
+        return dtype
+
+
+def _dtype_to_name(dtype: Any | str | None) -> str | None:
+    """Extract a canonical (lowercase) name for a dtype-like object."""
+    if dtype is None:
+        return None
+    if isinstance(dtype, str):
+        name = dtype
+    elif hasattr(dtype, "name") and getattr(dtype, "name"):
+        name = dtype.name
+    elif hasattr(dtype, "__name__"):
+        name = dtype.__name__
+    else:
+        text = str(dtype)
+        if text.startswith("<class '") and text.endswith("'>"):
+            text = text.split("'")[1]
+        if text.startswith("dtype(") and text.endswith(")"):
+            inner = text[6:-1].strip("'\" ")
+            text = inner or text
+        name = text
+    name = name.split(".")[-1]
+    return name.strip(" '\"<>").lower()
+
+
+def convert_dtype(
+    dtype: Any | str | None,
+    target_xp: Any,
+    *,
+    source_xp: Any | None = None,
+) -> Any | None:
+    """Convert a dtype between array API namespaces.
+
+    Parameters
+    ----------
+    dtype : Any | str | None
+        The dtype to convert. Can be a dtype object, string, or None.
+    target_xp : module
+        The target array API namespace to convert the dtype into.
+    source_xp : module, optional
+        The source namespace of the dtype. Provided for API symmetry and future
+        use; currently unused but accepted.
+
+    Returns
+    -------
+    Any | None
+        The dtype object compatible with ``target_xp`` (or None if ``dtype`` is None).
+    """
+    if dtype is None:
+        return None
+    if target_xp is None:
+        raise ValueError("target_xp must be provided to convert dtype.")
+
+    target_name = getattr(target_xp, "__name__", "")
+    dtype_module = getattr(dtype, "__module__", "")
+    if dtype_module.startswith(target_name):
+        return dtype
+    if is_torch_namespace(target_xp) and str(dtype).startswith("torch."):
+        return dtype
+
+    name = _dtype_to_name(dtype)
+    if not name:
+        raise ValueError(f"Could not infer dtype name from {dtype!r}")
+
+    candidates = dict.fromkeys(
+        [name, name.lower(), name.upper(), name.capitalize()]
+    )
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            return resolve_dtype(candidate, target_xp)
+        except ValueError as exc:
+            last_error = exc
+
+    # Fallback to direct attribute lookup
+    attr = getattr(target_xp, name, None) or getattr(
+        target_xp, name.lower(), None
+    )
+    if attr is not None:
+        return attr
+
+    raise ValueError(
+        f"Unable to convert dtype {dtype!r} to namespace {target_name}"
+    ) from last_error
+
+
 def copy_array(x, xp: Any = None) -> Array:
     """Copy an array based on the array API being used.
 
@@ -341,7 +470,7 @@ def encode_dtype(xp, dtype):
     return {
         "__dtype__": True,
         "xp": xp.__name__,
-        "dtype": str(dtype),
+        "dtype": _dtype_to_name(dtype),
     }
 
 
