@@ -1,5 +1,15 @@
+import math
+
+import pytest
+
 from aspire import transforms
 from aspire.utils import AspireFile
+
+
+def _make_array(xp, data, dtype):
+    if dtype is None:
+        return xp.asarray(data)
+    return xp.asarray(data, dtype=dtype)
 
 
 def save_and_load(tmp_path, transform):
@@ -24,6 +34,19 @@ def test_save_and_load_identity_transform(tmp_path, xp, dtype):
     assert loaded_transform.dtype == data_transform.dtype
 
 
+def test_identity_transform_forward_inverse_roundtrip(xp, dtype):
+    transform = transforms.IdentityTransform(xp=xp, dtype=dtype)
+    x = _make_array(xp, [[0.0, 1.0], [1.5, -2.5]], dtype)
+
+    y, log_j = transform.forward(x)
+    x_inv, inv_log_j = transform.inverse(y)
+
+    assert xp.allclose(y, x)
+    assert xp.allclose(x_inv, x)
+    assert xp.allclose(log_j, xp.zeros(len(x)))
+    assert xp.allclose(inv_log_j, xp.zeros(len(x)))
+
+
 def test_save_and_load_periodic_transform(tmp_path, xp, dtype):
     data_transform = transforms.PeriodicTransform(
         lower=0, upper=xp.pi, xp=xp, dtype=dtype
@@ -33,6 +56,51 @@ def test_save_and_load_periodic_transform(tmp_path, xp, dtype):
     # Check that the loaded transform has the same parameters
     assert type(loaded_transform) is type(data_transform)
     assert loaded_transform.dtype == data_transform.dtype
+
+
+def test_periodic_transform_wraps_and_inverts(xp, dtype):
+    lower = 0.0
+    upper = 2 * math.pi
+    transform = transforms.PeriodicTransform(
+        lower=lower, upper=upper, xp=xp, dtype=dtype
+    )
+    width = upper - lower
+    raw = [-math.pi, 3 * math.pi]
+    x = _make_array(xp, [[raw[0]], [raw[1]]], dtype)
+    expected = [((value - lower) % width) + lower for value in raw]
+    expected_arr = _make_array(xp, [[v] for v in expected], transform.dtype)
+
+    y, log_j = transform.forward(x)
+    x_inv, inv_log_j = transform.inverse(y)
+
+    assert xp.allclose(y, expected_arr, atol=1e-6)
+    assert xp.allclose(x_inv, expected_arr, atol=1e-6)
+    assert xp.allclose(log_j, xp.zeros(y.shape[0]))
+    assert xp.allclose(inv_log_j, xp.zeros(y.shape[0]))
+
+
+def test_periodic_transform_multidimensional(xp, dtype):
+    lower = _make_array(xp, [0.0, -math.pi], dtype)
+    upper = _make_array(xp, [2 * math.pi, math.pi], dtype)
+    transform = transforms.PeriodicTransform(
+        lower=lower, upper=upper, xp=xp, dtype=dtype
+    )
+    x = _make_array(
+        xp,
+        [
+            [-3.0, -3.5],
+            [7.0, 3.2],
+        ],
+        dtype,
+    )
+
+    y, log_j = transform.forward(x)
+    x_inv, inv_log_j = transform.inverse(y)
+
+    assert y.shape == x.shape
+    assert xp.allclose(x_inv, y, atol=1e-6)
+    assert log_j.shape == (x.shape[0],)
+    assert inv_log_j.shape == (x.shape[0],)
 
 
 def test_save_and_load_affine_transform(tmp_path, rng, xp):
@@ -53,6 +121,50 @@ def test_save_and_load_affine_transform(tmp_path, rng, xp):
     # Check values are close
     assert xp.allclose(loaded_transform._mean, data_transform._mean)
     assert xp.allclose(loaded_transform._std, data_transform._std)
+
+
+def test_logit_transform_forward_inverse_roundtrip(xp, dtype):
+    transform = transforms.LogitTransform(
+        lower=-1.0, upper=2.0, xp=xp, dtype=dtype
+    )
+    x = _make_array(
+        xp,
+        [
+            [-0.75, 0.0, 1.25],
+            [1.5, -0.25, 0.8],
+        ],
+        dtype,
+    )
+
+    y, log_j = transform.forward(x)
+    x_inv, inv_log_j = transform.inverse(y)
+
+    assert xp.allclose(x_inv, x, atol=1e-5)
+    assert log_j.shape == (x.shape[0],)
+    assert inv_log_j.shape == (x.shape[0],)
+
+
+def test_logit_transform_multidimensional(xp, dtype):
+    lower = _make_array(xp, [-1.0, 0.0], dtype)
+    upper = _make_array(xp, [1.0, 2.0], dtype)
+    transform = transforms.LogitTransform(
+        lower=lower, upper=upper, xp=xp, dtype=dtype
+    )
+    x = _make_array(
+        xp,
+        [
+            [-0.5, 0.5],
+            [0.75, 1.75],
+        ],
+        dtype,
+    )
+
+    y, log_j = transform.forward(x)
+    x_inv, inv_log_j = transform.inverse(y)
+
+    assert xp.allclose(x_inv, x, atol=1e-5)
+    assert log_j.shape == (x.shape[0],)
+    assert inv_log_j.shape == (x.shape[0],)
 
 
 def test_save_and_load_logit_transform(tmp_path, xp, dtype):
@@ -115,3 +227,76 @@ def test_save_and_load_composite_transform(tmp_path, rng, xp, dtype):
     # Check that the forward and inverse transforms are the same
     assert xp.allclose(x_forward, x_forward_loaded)
     assert xp.allclose(x_inverse, x_inverse_loaded)
+
+
+def test_composite_transform_requires_prior_bounds_for_periodic(xp, dtype):
+    with pytest.raises(ValueError):
+        transforms.CompositeTransform(
+            parameters=[0],
+            periodic_parameters=[0],
+            prior_bounds=None,
+            xp=xp,
+            dtype=dtype,
+        )
+
+
+def test_composite_transform_new_instance_copies_configuration(xp, dtype):
+    parameters = ["x0", "x1"]
+    prior_bounds = {p: (-1.0, 1.0) for p in parameters}
+    transform = transforms.CompositeTransform(
+        parameters=parameters,
+        periodic_parameters=[],
+        prior_bounds=prior_bounds,
+        xp=xp,
+        dtype=dtype,
+        affine_transform=False,
+    )
+
+    new_transform = transform.new_instance()
+    assert new_transform.xp is transform.xp
+    assert new_transform.dtype == transform.dtype
+    assert new_transform.parameters == transform.parameters
+    assert new_transform.periodic_parameters == transform.periodic_parameters
+
+
+def test_flow_transform_config_drops_periodic_parameters(xp, dtype):
+    parameters = ["a", "b"]
+    prior_bounds = {p: (-2.0, 2.0) for p in parameters}
+    transform = transforms.FlowTransform(
+        parameters=parameters,
+        prior_bounds=prior_bounds,
+        xp=xp,
+        dtype=dtype,
+    )
+
+    cfg = transform.config_dict()
+    assert "periodic_parameters" not in cfg
+    assert cfg["parameters"] == parameters
+
+
+def test_logit_transform_interval_check_raises(xp):
+    with pytest.raises(ValueError):
+        transforms.LogitTransform(lower=0.0, upper=0.0, xp=xp, dtype=None)
+
+
+def test_probit_transform_multidimensional_roundtrip(xp, dtype):
+    lower = _make_array(xp, [-2.0, -1.0], dtype)
+    upper = _make_array(xp, [2.0, 3.0], dtype)
+    transform = transforms.ProbitTransform(
+        lower=lower, upper=upper, xp=xp, dtype=dtype
+    )
+    x = _make_array(
+        xp,
+        [
+            [-1.0, -0.5],
+            [1.0, 2.5],
+        ],
+        dtype,
+    )
+
+    y, log_j = transform.forward(x)
+    x_inv, inv_log_j = transform.inverse(y)
+
+    assert xp.allclose(x_inv, x, atol=1e-5)
+    assert log_j.shape == (x.shape[0],)
+    assert inv_log_j.shape == (x.shape[0],)

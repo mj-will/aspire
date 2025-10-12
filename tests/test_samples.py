@@ -32,6 +32,8 @@ def test_basesamples_defaults_and_dims_numpy_namespace():
     bs = BaseSamples(x=x)
     # xp inferred from x
     assert bs.xp is not None
+    assert bs.dtype == x.dtype
+    assert bs.x.dtype == x.dtype
     # parameters default names
     assert bs.parameters == ["x_0", "x_1", "x_2", "x_3"]
     # dims computed correctly
@@ -46,6 +48,8 @@ def test_basesamples_to_dict_flat_and_nested():
     x = np.arange(6.0).reshape(3, 2)
     ll = np.array([0.1, 0.2, 0.3])
     bs = BaseSamples(x=x, log_likelihood=ll, parameters=["a", "b"])
+
+    assert bs.log_likelihood.dtype == bs.dtype
 
     d_flat = bs.to_dict(flat=True)
     assert "a" in d_flat and "b" in d_flat
@@ -91,6 +95,16 @@ def test_basesamples_getitem_slice_returns_same_type_and_fields():
     assert np.isclose(one.log_likelihood, ll[2])
     assert np.isclose(one.log_prior, lp[2])
     assert np.isclose(one.log_q, lq[2])
+    assert one.dtype == bs.dtype
+
+
+def test_basesamples_respects_explicit_dtype_string():
+    x = np.arange(6).reshape(3, 2)
+    ll = np.linspace(0.0, 1.0, 3)
+    bs = BaseSamples(x=x, log_likelihood=ll, dtype="float32")
+    assert bs.x.dtype == np.dtype("float32")
+    assert bs.dtype == np.dtype("float32")
+    assert bs.log_likelihood.dtype == np.dtype("float32")
 
 
 def test_basesamples_pickle_restores_namespace_and_fields():
@@ -195,6 +209,19 @@ def test_samples_concatenate_success_and_mismatch_errors():
     assert isinstance(sc, Samples)
     assert sc.x.shape == (7, 2)
     assert sc.parameters == ["a", "b"]
+
+    # Mismatching dtype -> error
+    x3 = x1.astype(np.float32)
+    s3 = Samples(
+        x=x3,
+        log_likelihood=ll1,
+        log_prior=lp1,
+        log_q=lq1,
+        parameters=["a", "b"],
+        dtype="float32",
+    )
+    with pytest.raises(ValueError):
+        Samples.concatenate([s1, s3])
 
     # Mismatching parameters -> error
     t_bad = Samples(
