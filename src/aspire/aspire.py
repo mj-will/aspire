@@ -58,6 +58,8 @@ class Aspire:
         Whether to use flow matching.
     eps : float
         The epsilon value to use for data transforms.
+    dtype : Any | str | None
+        The data type to use for the samples, flow and transforms.
     **kwargs
         Keyword arguments to pass to the flow.
     """
@@ -79,6 +81,7 @@ class Aspire:
         flow_backend: str = "zuko",
         flow_matching: bool = False,
         eps: float = 1e-6,
+        dtype: Any | str | None = None,
         **kwargs,
     ) -> None:
         self.log_likelihood = log_likelihood
@@ -96,6 +99,7 @@ class Aspire:
         self.flow_backend = flow_backend
         self.flow_kwargs = kwargs
         self.xp = xp
+        self.dtype = dtype
 
         self._flow = flow
 
@@ -140,6 +144,7 @@ class Aspire:
             log_prior=log_prior,
             log_q=log_q,
             xp=xp,
+            dtype=self.dtype,
         )
 
         if evaluate:
@@ -169,6 +174,7 @@ class Aspire:
             device=self.device,
             xp=xp,
             eps=self.eps,
+            dtype=self.dtype,
         )
 
         # Check if FlowClass takes `parameters` as an argument
@@ -182,6 +188,7 @@ class Aspire:
             dims=self.dims,
             device=self.device,
             data_transform=data_transform,
+            dtype=self.dtype,
             **self.flow_kwargs,
         )
 
@@ -255,6 +262,7 @@ class Aspire:
                 periodic_parameters=self.periodic_parameters,
                 xp=self.xp,
                 device=self.device,
+                dtype=self.dtype,
                 **preconditioning_kwargs,
             )
         elif preconditioning == "flow":
@@ -269,6 +277,7 @@ class Aspire:
                 bounded_to_unbounded=self.bounded_to_unbounded,
                 prior_bounds=self.prior_bounds,
                 xp=self.xp,
+                dtype=self.dtype,
                 device=self.device,
                 **preconditioning_kwargs,
             )
@@ -281,6 +290,7 @@ class Aspire:
             dims=self.dims,
             prior_flow=self.flow,
             xp=self.xp,
+            dtype=self.dtype,
             preconditioning_transform=transform,
             **kwargs,
         )

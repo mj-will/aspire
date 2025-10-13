@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from aspire.flows.torch.flows import ZukoFlow
@@ -5,11 +6,14 @@ from aspire.transforms import FlowTransform
 from aspire.utils import AspireFile
 
 
-def test_zuko_flow():
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_zuko_flow(dtype):
     dims = 3
     parameters = [f"x_{i}" for i in range(dims)]
 
-    data_transform = FlowTransform(parameters=parameters, xp=torch)
+    data_transform = FlowTransform(
+        parameters=parameters, xp=torch, dtype=dtype
+    )
 
     # Create an instance of ZukoFlow
     flow = ZukoFlow(

@@ -1,15 +1,17 @@
 import importlib
 import logging
 import math
-from typing import Any
+from typing import Any, Callable
 
 import h5py
 from array_api_compat import device as get_device
 from array_api_compat import is_torch_namespace
+from array_api_compat.common._typing import Array
 
 from .flows import get_flow_wrapper
 from .utils import (
     asarray,
+    convert_dtype,
     copy_array,
     logit,
     sigmoid,
@@ -35,6 +37,10 @@ class BaseTransform:
         self.xp = xp
         if is_torch_namespace(self.xp) and dtype is None:
             dtype = self.xp.get_default_dtype()
+        elif isinstance(dtype, str):
+            from .utils import resolve_dtype
+
+            dtype = resolve_dtype(dtype, self.xp)
         self.dtype = dtype
 
     def fit(self, x):
@@ -309,7 +315,13 @@ class CompositeTransform(BaseTransform):
 
         return x, log_abs_det_jacobian
 
-    def new_instance(self, xp=None):
+    def new_instance(self, xp=None, dtype: Any = None):
+        if xp is None:
+            xp = self.xp
+        if dtype is None:
+            dtype = self.dtype
+        dtype = convert_dtype(dtype, xp)
+
         return self.__class__(
             parameters=self.parameters,
             periodic_parameters=self.periodic_parameters,
@@ -319,6 +331,7 @@ class CompositeTransform(BaseTransform):
             device=self.device,
             xp=xp or self.xp,
             eps=self.eps,
+            dtype=dtype,
         )
 
     def _save_state(self, h5_file):
@@ -423,85 +436,171 @@ class PeriodicTransform(BaseTransform):
         }
 
 
-class ProbitTransform(BaseTransform):
-    name: str = "probit"
+class BoundedTransform(BaseTransform):
+    """Base class for bounded transforms.
+
+    Maps from [lower, upper] to [0, 1] and vice versa using a linear scaling.
+    If the interval [lower, upper] is too small, it will shift by the midpoint.
+
+    Must be subclassed to implement specific transforms (e.g., Probit, Logit).
+
+    Parameters
+    ----------
+    lower : Array
+        The lower bound of the interval.
+    upper : Array
+        The upper bound of the interval.
+    xp : Callable
+        The array API namespace to use (e.g., numpy, torch).
+    dtype : Any, optional
+        The data type to use for the transform. If not provided, defaults to
+        the default dtype of the array API namespace if available.
+    """
+
+    name: str = "bounded"
     requires_prior_bounds: bool = True
 
-    def __init__(self, lower, upper, xp, eps=1e-6, dtype=None):
+    def __init__(
+        self, lower: Array, upper: Array, xp: Callable, dtype: Any = None
+    ):
         super().__init__(xp=xp, dtype=dtype)
-        self.lower = xp.asarray(lower, dtype=self.dtype)
-        self.upper = xp.asarray(upper, dtype=self.dtype)
-        self._scale_log_abs_det_jacobian = -xp.log(
-            self.upper - self.lower
-        ).sum()
-        self.eps = eps
+        self.lower = xp.atleast_1d(xp.asarray(lower, dtype=self.dtype))
+        self.upper = xp.atleast_1d(xp.asarray(upper, dtype=self.dtype))
+
+        self.interval_check(self.lower, self.upper)
+
+        self._denom = self.upper - self.lower
+        self._scale_log_abs_det_jacobian = -xp.log(self._denom).sum()
+
+    def to_unit_interval(self, x: Array) -> tuple[Array, Array]:
+        """Map from [lower, upper] to [0, 1].
+
+        Parameters
+        ----------
+        x : Array
+            The input array to be mapped.
+
+        Returns
+        -------
+        tuple[Array, Array]
+            A tuple containing the mapped array and the log absolute determinant Jacobian.
+        """
+        y = (x - self.lower) / self._denom
+        log_j = self._scale_log_abs_det_jacobian * self.xp.ones(
+            y.shape[0], device=get_device(y)
+        )
+        return y, log_j
+
+    def from_unit_interval(self, y: Array) -> tuple[Array, Array]:
+        """Map from [0, 1] to [lower, upper].
+
+        Parameters
+        ----------
+        y : Array
+            The input array to be mapped.
+
+        Returns
+        -------
+        tuple[Array, Array]
+            A tuple containing the mapped array and the log absolute determinant Jacobian.
+        """
+        x = self._denom * y + self.lower
+        log_j = -self._scale_log_abs_det_jacobian * self.xp.ones(
+            x.shape[0], device=get_device(x)
+        )
+        return x, log_j
+
+    def interval_check(self, lower: Array, upper: Array) -> bool:
+        """Check if the interval [lower, upper] is too small"""
+        if any((upper - lower) == 0.0):
+            raise ValueError(
+                "Current floating precision is too small for specified parameter ranges"
+            )
 
     def fit(self, x):
         return self.forward(x)[0]
 
     def forward(self, x):
-        from scipy.special import erfinv
-
-        y = (x - self.lower) / (self.upper - self.lower)
-        y = self.xp.clip(y, self.eps, 1.0 - self.eps)
-        y = erfinv(2 * y - 1) * math.sqrt(2)
-        log_abs_det_jacobian = (
-            0.5 * (math.log(2 * math.pi) + y**2).sum(-1)
-            + self._scale_log_abs_det_jacobian
-        )
-        return y, log_abs_det_jacobian
+        raise NotImplementedError("Subclasses must implement forward method.")
 
     def inverse(self, y):
-        from scipy.special import erf
-
-        log_abs_det_jacobian = (
-            -(0.5 * (math.log(2 * math.pi) + y**2)).sum(-1)
-            - self._scale_log_abs_det_jacobian
-        )
-        x = 0.5 * (1 + erf(y / math.sqrt(2)))
-        x = (self.upper - self.lower) * x + self.lower
-        return x, log_abs_det_jacobian
+        raise NotImplementedError("Subclasses must implement inverse method.")
 
     def config_dict(self):
         return super().config_dict() | {
             "lower": self.lower.tolist(),
             "upper": self.upper.tolist(),
-            "eps": self.eps,
         }
 
 
-class LogitTransform(BaseTransform):
-    name: str = "logit"
+class ProbitTransform(BoundedTransform):
+    name: str = "probit"
     requires_prior_bounds: bool = True
 
     def __init__(self, lower, upper, xp, eps=1e-6, dtype=None):
-        super().__init__(xp=xp, dtype=dtype)
-        self.lower = xp.asarray(lower, dtype=self.dtype)
-        self.upper = xp.asarray(upper, dtype=self.dtype)
-        self._scale_log_abs_det_jacobian = -xp.log(
-            self.upper - self.lower
-        ).sum()
+        super().__init__(xp=xp, dtype=dtype, lower=lower, upper=upper)
         self.eps = eps
 
-    def fit(self, x):
+    def fit(self, x: Array) -> Array:
         return self.forward(x)[0]
 
-    def forward(self, x):
-        y = (x - self.lower) / (self.upper - self.lower)
-        y, log_abs_det_jacobian = logit(y, eps=self.eps)
-        log_abs_det_jacobian += self._scale_log_abs_det_jacobian
+    def forward(self, x: Array) -> tuple[Array, Array]:
+        from scipy.special import erfinv
+
+        y, log_j_unit = self.to_unit_interval(x)
+        y = self.xp.clip(y, self.eps, 1.0 - self.eps)
+        y = erfinv(2 * y - 1) * math.sqrt(2)
+        log_abs_det_jacobian = 0.5 * (math.log(2 * math.pi) + y**2).sum(-1)
+        log_abs_det_jacobian = log_abs_det_jacobian + log_j_unit
         return y, log_abs_det_jacobian
 
-    def inverse(self, y):
-        x, log_abs_det_jacobian = sigmoid(y)
-        log_abs_det_jacobian -= self._scale_log_abs_det_jacobian
-        x = (self.upper - self.lower) * x + self.lower
+    def inverse(self, y: Array) -> tuple[Array, Array]:
+        from scipy.special import erf
+
+        log_abs_det_jacobian = -(0.5 * (math.log(2 * math.pi) + y**2)).sum(-1)
+        x = 0.5 * (1 + erf(y / math.sqrt(2)))
+        x, log_j_unit = self.from_unit_interval(x)
+        log_abs_det_jacobian = log_abs_det_jacobian + log_j_unit
         return x, log_abs_det_jacobian
 
     def config_dict(self):
         return super().config_dict() | {
-            "lower": self.lower,
-            "upper": self.upper,
+            "eps": self.eps,
+        }
+
+
+class LogitTransform(BoundedTransform):
+    name: str = "logit"
+    requires_prior_bounds: bool = True
+
+    def __init__(
+        self,
+        lower: Array,
+        upper: Array,
+        xp: Callable,
+        eps: float = 1e-6,
+        dtype: Any = None,
+    ):
+        super().__init__(xp=xp, dtype=dtype, lower=lower, upper=upper)
+        self.eps = eps
+
+    def fit(self, x: Array) -> Array:
+        return self.forward(x)[0]
+
+    def forward(self, x: Array) -> tuple[Array, Array]:
+        y, log_j_unit = self.to_unit_interval(x)
+        y, log_abs_det_jacobian = logit(y, eps=self.eps)
+        log_abs_det_jacobian = log_abs_det_jacobian + log_j_unit
+        return y, log_abs_det_jacobian
+
+    def inverse(self, y: Array) -> tuple[Array, Array]:
+        x, log_abs_det_jacobian = sigmoid(y)
+        x, log_j_unit = self.from_unit_interval(x)
+        log_abs_det_jacobian = log_abs_det_jacobian + log_j_unit
+        return x, log_abs_det_jacobian
+
+    def config_dict(self) -> dict[str, Any]:
+        return super().config_dict() | {
             "eps": self.eps,
         }
 
@@ -576,8 +675,10 @@ class FlowPreconditioningTransform(BaseTransform):
         self.device = device or "cpu"
         self.flow_backend = flow_backend
         self.flow_matching = flow_matching
-        self.flow_kwargs = flow_kwargs or {}
-        self.fit_kwargs = fit_kwargs or {}
+        self.flow_kwargs = dict(flow_kwargs or {})
+        if dtype is not None:
+            self.flow_kwargs.setdefault("dtype", dtype)
+        self.fit_kwargs = dict(fit_kwargs or {})
 
         FlowClass = get_flow_wrapper(
             backend=flow_backend, flow_matching=flow_matching
@@ -615,7 +716,14 @@ class FlowPreconditioningTransform(BaseTransform):
     def inverse(self, y):
         return self.flow.inverse(y, xp=self.xp)
 
-    def new_instance(self, xp=None):
+    def new_instance(self, xp=None, dtype: Any = None):
+        if xp is None:
+            xp = self.xp
+        if dtype is None:
+            dtype = self.dtype
+
+        dtype = convert_dtype(dtype, xp)
+
         return self.__class__(
             parameters=self.parameters,
             periodic_parameters=self.periodic_parameters,
@@ -624,9 +732,9 @@ class FlowPreconditioningTransform(BaseTransform):
             bounded_transform=self.bounded_transform,
             affine_transform=self.affine_transform,
             device=self.device,
-            xp=xp or self.xp,
+            xp=xp,
             eps=self.eps,
-            dtype=self.dtype,
+            dtype=dtype,
             flow_backend=self.flow_backend,
             flow_matching=self.flow_matching,
             flow_kwargs=self.flow_kwargs,

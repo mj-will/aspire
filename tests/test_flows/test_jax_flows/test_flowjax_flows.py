@@ -1,16 +1,18 @@
 import jax
 import jax.numpy as jnp
+import pytest
 
 from aspire.flows.jax.flows import FlowJax
 from aspire.transforms import FlowTransform
 from aspire.utils import AspireFile
 
 
-def test_zuko_flow():
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+def test_flowjax_flow(dtype):
     dims = 3
     parameters = [f"x_{i}" for i in range(dims)]
 
-    data_transform = FlowTransform(parameters=parameters, xp=jnp)
+    data_transform = FlowTransform(parameters=parameters, xp=jnp, dtype=dtype)
     key = jax.random.key(42)
     key, flow_key = jax.random.split(key)
 
@@ -20,6 +22,7 @@ def test_zuko_flow():
         key=flow_key,
         device="cpu",
         data_transform=data_transform,
+        dtype=dtype,
     )
 
     key, samples_key = jax.random.split(key)

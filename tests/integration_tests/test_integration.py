@@ -4,6 +4,11 @@ from aspire import Aspire
 from aspire.utils import AspireFile
 
 
+@pytest.fixture(params=[None, "float32", "float64"])
+def dtype(request):
+    return request.param
+
+
 def test_integration_zuko(
     log_likelihood,
     log_prior,
@@ -13,6 +18,7 @@ def test_integration_zuko(
     prior_bounds,
     bounded_to_unbounded,
     sampler_config,
+    dtype,
     tmp_path,
 ):
     if sampler_config.sampler == "blackjax_smc":
@@ -27,6 +33,7 @@ def test_integration_zuko(
         flow_matching=False,
         bounded_to_unbounded=bounded_to_unbounded,
         flow_backend="zuko",
+        dtype=dtype,
     )
     aspire.fit(samples, n_epochs=5)
     aspire.sample_posterior(
@@ -51,12 +58,18 @@ def test_integration_flowjax(
     bounded_to_unbounded,
     samples_backend,
     sampler_config,
+    dtype,
     tmp_path,
 ):
     import jax
 
-    if sampler_config.sampler == "blackjax_smc" and samples_backend != "jax":
-        pytest.xfail(reason="BlackJAX requires JAX arrays.")
+    if sampler_config.sampler == "blackjax_smc":
+        if samples_backend != "jax":
+            pytest.xfail(reason="BlackJAX requires JAX arrays.")
+        if dtype == "float32":
+            pytest.xfail(
+                reason="BlackJAX tests with float32 fail when running with jax defaults set to float64 dtypes."
+            )
 
     aspire = Aspire(
         log_likelihood=log_likelihood,
@@ -68,6 +81,7 @@ def test_integration_flowjax(
         bounded_to_unbounded=bounded_to_unbounded,
         flow_backend="flowjax",
         key=jax.random.key(0),
+        dtype=dtype,
     )
     aspire.fit(samples, max_epochs=5)
     posterior_samples = aspire.sample_posterior(
@@ -86,11 +100,9 @@ def test_init_existing_flow(
     log_likelihood,
     log_prior,
     dims,
-    samples,
     parameters,
     prior_bounds,
     bounded_to_unbounded,
-    sampler_config,
 ):
     aspire_kwargs = {
         "log_likelihood": log_likelihood,

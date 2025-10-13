@@ -1,6 +1,16 @@
 import numpy as np
 import pytest
-from array_api_compat import is_jax_namespace, is_torch_namespace
+from array_api_compat import is_torch_namespace
+
+
+@pytest.fixture(autouse=True, scope="session")
+def enable_jax_float64():
+    try:
+        import jax
+
+        jax.config.update("jax_enable_x64", True)
+    except ImportError:
+        pass
 
 
 @pytest.fixture
@@ -34,9 +44,4 @@ def dtype(request, xp):
             return torch.float64
         else:
             raise ValueError(f"Unsupported dtype: {request.param}")
-    elif is_jax_namespace(xp) and request.param == "float64":
-        # Skip float64 tests for JAX since you can't change dtype like this
-        pytest.skip("JAX does not support float64 by default.")
-        return
-
     return xp.dtype(request.param)

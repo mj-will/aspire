@@ -20,6 +20,7 @@ class BlackJAXSMC(SMCSampler):
         dims,
         prior_flow,
         xp,
+        dtype=None,
         parameters=None,
         preconditioning_transform=None,
         rng: np.random.Generator | None = None,  # New parameter
@@ -31,6 +32,7 @@ class BlackJAXSMC(SMCSampler):
             dims=dims,
             prior_flow=prior_flow,
             xp=xp,
+            dtype=dtype,
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
@@ -49,7 +51,7 @@ class BlackJAXSMC(SMCSampler):
         x_params, log_abs_det_jacobian = (
             self.preconditioning_transform.inverse(x_original)
         )
-        samples = SMCSamples(x_params, xp=self.xp)
+        samples = SMCSamples(x_params, xp=self.xp, dtype=self.dtype)
 
         # Compute log probabilities
         log_q = self.prior_flow.log_prob(samples.x)
@@ -306,7 +308,7 @@ class BlackJAXSMC(SMCSampler):
         self.history.mcmc_acceptance.append(float(mean_acceptance))
 
         # Create new samples
-        samples = SMCSamples(x_final, xp=self.xp, beta=beta)
+        samples = SMCSamples(x_final, xp=self.xp, beta=beta, dtype=self.dtype)
         samples.log_q = samples.array_to_namespace(
             self.prior_flow.log_prob(samples.x)
         )

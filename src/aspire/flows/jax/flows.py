@@ -6,6 +6,8 @@ import jax.numpy as jnp
 import jax.random as jrandom
 from flowjax.train import fit_to_data
 
+from ...transforms import IdentityTransform
+from ...utils import decode_dtype, encode_dtype, resolve_dtype
 from ..base import Flow
 from .utils import get_flow
 
@@ -15,11 +17,28 @@ logger = logging.getLogger(__name__)
 class FlowJax(Flow):
     xp = jnp
 
-    def __init__(self, dims: int, key=None, data_transform=None, **kwargs):
+    def __init__(
+        self,
+        dims: int,
+        key=None,
+        data_transform=None,
+        dtype=None,
+        **kwargs,
+    ):
         device = kwargs.pop("device", None)
         if device is not None:
             logger.warning("The device argument is not used in FlowJax. ")
+        resolved_dtype = (
+            resolve_dtype(dtype, jnp)
+            if dtype is not None
+            else jnp.dtype(jnp.float32)
+        )
+        if data_transform is None:
+            data_transform = IdentityTransform(self.xp, dtype=resolved_dtype)
+        elif getattr(data_transform, "dtype", None) is None:
+            data_transform.dtype = resolved_dtype
         super().__init__(dims, device=device, data_transform=data_transform)
+        self.dtype = resolved_dtype
         if key is None:
             key = jrandom.key(0)
             logger.warning(
@@ -34,14 +53,15 @@ class FlowJax(Flow):
         self._flow = get_flow(
             key=subkey,
             dims=self.dims,
+            dtype=self.dtype,
             **kwargs,
         )
 
     def fit(self, x, **kwargs):
         from ...history import FlowHistory
 
-        x = jnp.asarray(x)
-        x_prime = self.fit_data_transform(x)
+        x = jnp.asarray(x, dtype=self.dtype)
+        x_prime = jnp.asarray(self.fit_data_transform(x), dtype=self.dtype)
         self.key, subkey = jrandom.split(self.key)
         self._flow, losses = fit_to_data(subkey, self._flow, x_prime, **kwargs)
         return FlowHistory(
@@ -50,22 +70,27 @@ class FlowJax(Flow):
         )
 
     def forward(self, x, xp: Callable = jnp):
+        x = jnp.asarray(x, dtype=self.dtype)
         x_prime, log_abs_det_jacobian = self.rescale(x)
+        x_prime = jnp.asarray(x_prime, dtype=self.dtype)
         z, log_abs_det_jacobian_flow = self._flow.forward(x_prime)
         return xp.asarray(z), xp.asarray(
             log_abs_det_jacobian + log_abs_det_jacobian_flow
         )
 
     def inverse(self, z, xp: Callable = jnp):
-        z = jnp.asarray(z)
+        z = jnp.asarray(z, dtype=self.dtype)
         x_prime, log_abs_det_jacobian_flow = self._flow.inverse(z)
+        x_prime = jnp.asarray(x_prime, dtype=self.dtype)
         x, log_abs_det_jacobian = self.inverse_rescale(x_prime)
         return xp.asarray(x), xp.asarray(
             log_abs_det_jacobian + log_abs_det_jacobian_flow
         )
 
     def log_prob(self, x, xp: Callable = jnp):
+        x = jnp.asarray(x, dtype=self.dtype)
         x_prime, log_abs_det_jacobian = self.rescale(x)
+        x_prime = jnp.asarray(x_prime, dtype=self.dtype)
         log_prob = self._flow.log_prob(x_prime)
         return xp.asarray(log_prob + log_abs_det_jacobian)
 
@@ -91,9 +116,16 @@ class FlowJax(Flow):
         grp = h5_file.require_group(path)
 
         # ---- config ----
-        config = self.config_dict()
+        config = self.config_dict().copy()
         config.pop("key", None)
         config["key_data"] = jax.random.key_data(self.key)
+        dtype_value = config.get("dtype")
+        if dtype_value is None:
+            dtype_value = self.dtype
+        else:
+            dtype_value = jnp.dtype(dtype_value)
+        print(dtype_value)
+        config["dtype"] = encode_dtype(jnp, dtype_value)
 
         data_transform = config.pop("data_transform", None)
         if data_transform is not None:
@@ -123,6 +155,7 @@ class FlowJax(Flow):
 
         # ---- config ----
         config = load_from_h5_file(grp, "config")
+        config["dtype"] = decode_dtype(jnp, config.get("dtype"))
         if "data_transform" in grp:
             from ...transforms import BaseTransform
 
