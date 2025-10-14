@@ -664,6 +664,14 @@ def update_at_indices(x: Array, slc: Array, y: Array) -> Array:
     This is a workaround for the fact that array API does not support
     advanced indexing with all backends.
 
+    Examples
+    --------
+    >>> x = xp.array([[1, 2], [3, 4], [5, 6]])
+    >>> update_at_indices(x, (slice(None), 0), xp.array([10, 20, 30]))
+    [[10  2]
+     [20  4]
+     [30  6]]
+
     Parameters
     ----------
     x : Array
