@@ -2,6 +2,7 @@ import math
 from collections import namedtuple
 
 import pytest
+
 from aspire.samples import Samples
 
 SamplerConfig = namedtuple(
