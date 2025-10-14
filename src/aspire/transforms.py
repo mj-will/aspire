@@ -215,6 +215,7 @@ class CompositeTransform(BaseTransform):
                 lower=lower_bounds[self.periodic_mask],
                 upper=upper_bounds[self.periodic_mask],
                 xp=self.xp,
+                dtype=self.dtype,
             )
         if self.bounded_parameters:
             logger.info(f"Bounded parameters: {self.bounded_parameters}")
@@ -235,11 +236,12 @@ class CompositeTransform(BaseTransform):
                 upper=upper_bounds[self.bounded_mask],
                 xp=self.xp,
                 eps=self.eps,
+                dtype=self.dtype,
             )
 
         if self.affine_transform:
             logger.info(f"Affine transform applied to: {self.parameters}")
-            self._affine_transform = AffineTransform(xp=self.xp)
+            self._affine_transform = AffineTransform(xp=self.xp, dtype=self.dtype)
         else:
             self._affine_transform = None
 
@@ -514,7 +516,7 @@ class BoundedTransform(BaseTransform):
         """Check if the interval [lower, upper] is too small"""
         if any((upper - lower) == 0.0):
             raise ValueError(
-                "Current floating precision is too small for specified parameter ranges"
+                f"Current floating precision ({self.dtype}) is too small for specified parameter ranges"
             )
 
     def fit(self, x):
