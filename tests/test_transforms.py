@@ -279,7 +279,6 @@ def test_composite_transform_forward_inverse_roundtrip(xp, dtype):
     )  # Wrap x0 to [-3, 3]
     print(x_exp)
 
-
     assert x.shape == y.shape
     assert xp.allclose(x_inv, x_exp, atol=1e-5)
     assert log_j.shape == (x.shape[0],)

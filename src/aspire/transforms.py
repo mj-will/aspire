@@ -241,7 +241,9 @@ class CompositeTransform(BaseTransform):
 
         if self.affine_transform:
             logger.info(f"Affine transform applied to: {self.parameters}")
-            self._affine_transform = AffineTransform(xp=self.xp, dtype=self.dtype)
+            self._affine_transform = AffineTransform(
+                xp=self.xp, dtype=self.dtype
+            )
         else:
             self._affine_transform = None
 
