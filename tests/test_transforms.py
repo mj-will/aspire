@@ -3,7 +3,7 @@ import math
 import pytest
 
 from aspire import transforms
-from aspire.utils import AspireFile
+from aspire.utils import AspireFile, copy_array, update_at_indices
 
 
 def _make_array(xp, data, dtype):
@@ -227,6 +227,63 @@ def test_save_and_load_composite_transform(tmp_path, rng, xp, dtype):
     # Check that the forward and inverse transforms are the same
     assert xp.allclose(x_forward, x_forward_loaded)
     assert xp.allclose(x_inverse, x_inverse_loaded)
+
+
+def test_composite_transform_forward_inverse_roundtrip(xp, dtype):
+    parameters = ["x0", "x1", "x2"]
+    prior_bounds = {p: (-3.0, 3.0) for p in parameters}
+    transform = transforms.CompositeTransform(
+        parameters=parameters,
+        periodic_parameters=["x0"],
+        prior_bounds=prior_bounds,
+        xp=xp,
+        dtype=dtype,
+        affine_transform=True,
+    )
+
+    assert transform._periodic_transform.dtype == transform.dtype
+    assert transform._bounded_transform.dtype == transform.dtype
+    assert transform._affine_transform.dtype == transform.dtype
+
+    x_fit = _make_array(
+        xp,
+        [
+            [-2.0, -2.5, 0.0],
+            [2.0, 1.5, -1.0],
+            [0.0, 0.0, 0.0],
+        ],
+        dtype,
+    )
+    transform.fit(x_fit)
+
+    x = _make_array(
+        xp,
+        [
+            [-4.0, -2.5, 0.0],
+            [7.0, 1.5, -1.0],
+            [0.0, 0.0, 0.0],
+        ],
+        dtype,
+    )
+
+    y, log_j = transform.forward(x)
+    x_inv, inv_log_j = transform.inverse(y)
+
+    x_exp = copy_array(x)
+    print(x_exp)
+    print((x_exp[:, 0] + 3) % 6 - 3)
+    x_exp = update_at_indices(
+        x_exp,
+        (slice(None), 0),
+        ((x_exp[:, 0] + 3) % 6) - 3,
+    )  # Wrap x0 to [-3, 3]
+    print(x_exp)
+
+
+    assert x.shape == y.shape
+    assert xp.allclose(x_inv, x_exp, atol=1e-5)
+    assert log_j.shape == (x.shape[0],)
+    assert inv_log_j.shape == (x.shape[0],)
 
 
 def test_composite_transform_requires_prior_bounds_for_periodic(xp, dtype):
