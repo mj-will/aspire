@@ -14,6 +14,7 @@ from array_api_compat import (
 )
 from array_api_compat import device as api_device
 from array_api_compat.common._typing import Array
+from matplotlib.figure import Figure
 
 from .utils import (
     asarray,
@@ -161,7 +162,24 @@ class BaseSamples:
 
         return pd.DataFrame(self.to_dict(flat=flat))
 
-    def plot_corner(self, parameters: list[str] | None = None, **kwargs):
+    def plot_corner(
+        self,
+        parameters: list[str] | None = None,
+        fig: Figure | None = None,
+        **kwargs,
+    ):
+        """Plot a corner plot of the samples.
+
+        Parameters
+        ----------
+        parameters : list[str] | None
+            List of parameters to plot. If None, all parameters are plotted.
+        fig : matplotlib.figure.Figure | None
+            Figure to plot on. If None, a new figure is created.
+        **kwargs : dict
+            Additional keyword arguments to pass to corner.corner(). Kwargs
+            are deep-copied before use.
+        """
         import corner
 
         kwargs = copy.deepcopy(kwargs)
@@ -173,7 +191,7 @@ class BaseSamples:
             x = self.x[:, indices] if self.x.ndim > 1 else self.x[indices]
         else:
             x = self.x
-        fig = corner.corner(to_numpy(x), **kwargs)
+        fig = corner.corner(to_numpy(x), fig=fig, **kwargs)
         return fig
 
     def __str__(self):
