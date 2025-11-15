@@ -684,7 +684,7 @@ class FlowPreconditioningTransform(BaseTransform):
             self.flow_kwargs.setdefault("dtype", dtype)
         self.fit_kwargs = dict(fit_kwargs or {})
 
-        FlowClass = get_flow_wrapper(
+        FlowClass, xp = get_flow_wrapper(
             backend=flow_backend, flow_matching=flow_matching
         )
         transform = CompositeTransform(
@@ -695,7 +695,7 @@ class FlowPreconditioningTransform(BaseTransform):
             bounded_transform=bounded_transform,
             affine_transform=affine_transform,
             device=device,
-            xp=FlowClass.xp,
+            xp=xp,
             eps=eps,
             dtype=dtype,
         )
