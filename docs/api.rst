@@ -16,7 +16,7 @@ Samples utilities
 -----------------
 
 .. automodule:: aspire.samples
-   :members: BaseSamples, Samples, SMCSamples
+   :members: Samples, SMCSamples
    :undoc-members:
    :show-inheritance:
 
@@ -25,13 +25,5 @@ History objects
 
 .. automodule:: aspire.history
    :members: History, FlowHistory, SMCHistory
-   :undoc-members:
-   :show-inheritance:
-
-Importance sampler
-------------------
-
-.. automodule:: aspire.samplers.importance
-   :members:
    :undoc-members:
    :show-inheritance:
