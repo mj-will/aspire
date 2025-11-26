@@ -34,12 +34,8 @@ def test_get_flow_wrapper_flowjax():
 
 
 def test_get_flow_wrapper_flowjax_flow_matching_not_implemented():
-    try:
+    with pytest.raises(NotImplementedError, match="Flow matching not implemented for JAX backend"):
         get_flow_wrapper(backend="flowjax", flow_matching=True)
-    except NotImplementedError as e:
-        assert str(e) == "Flow matching not implemented for JAX backend"
-    else:
-        assert False, "Expected NotImplementedError was not raised"
 
 
 def test_get_flow_wrapper_external_backend_not_found():
