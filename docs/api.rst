@@ -1,8 +1,7 @@
 API Reference
 =============
 
-This section documents the main public classes. For brevity only components
-that do not require optional third-party samplers are auto-documented here.
+This section documents the main public classes.
 
 Aspire interface
 ----------------
