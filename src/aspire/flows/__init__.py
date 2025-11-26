@@ -51,8 +51,7 @@ def get_flow_wrapper(
                 "Flow matching option is ignored for external backends."
             )
         eps = {
-            ep.name.lower(): ep
-            for ep in entry_points().get("aspire.flows", [])
+            ep.name.lower(): ep for ep in entry_points(group="aspire.flows")
         }
         if backend in eps:
             FlowClass = eps[backend].load()
