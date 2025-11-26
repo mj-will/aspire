@@ -62,7 +62,7 @@ def get_flow_wrapper(
                 )
             return FlowClass, xp
         else:
-            known_backends = ["flowjax", "zuko"] + list(eps.keys())
+            known_backends = ["zuko", "flowjax"] + list(eps.keys())
             raise ValueError(
                 f"Unknown backend '{backend}'. Available backends: {known_backends}"
             )
