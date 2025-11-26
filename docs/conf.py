@@ -18,6 +18,7 @@ import aspire  # noqa: E402
 project = "aspire"
 copyright = "2025, Michael J. Williams"
 author = "Michael J. Williams"
+version = aspire.__version__
 release = aspire.__version__
 
 # -- General configuration ---------------------------------------------------
@@ -44,8 +45,13 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 html_theme = "sphinx_book_theme"
 html_static_path = ["_static"]
+html_title = "aspire"
 html_theme_options = {
-    "repository_url": "https://github.com/sequince-dev/sequince",
+    "path_to_docs": "docs",
+    "repository_url": "https://github.com/mj-will/aspire",
+    "repository_branch": "main",
+    "use_edit_page_button": True,
+    "use_issues_button": True,
     "use_repository_button": True,
-    "use_fullscreen_button": False,
+    "use_download_button": True,
 }

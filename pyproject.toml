@@ -55,6 +55,7 @@ test = [
 
 [project.urls]
 Homepage = "https://github.com/mj-will/aspire"
+Documentation = "https://aspire.readthedocs.io/"
 
 [tool.setuptools_scm]
 
