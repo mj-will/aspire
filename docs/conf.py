@@ -49,6 +49,7 @@ autoapi_dirs = ["../src/aspire/"]
 autoapi_add_toctree_entry = True
 autoapi_options = [
     "members",
+    "imported-members",
     "show-inheritance",
     "show-module-summary",
     "undoc-members",

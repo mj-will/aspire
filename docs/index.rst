@@ -22,8 +22,7 @@ Quick start
 .. code-block:: python
 
     import numpy as np
-    from aspire import Aspire
-    from aspire.samples import Samples
+    from aspire import Aspire, Samples
 
     def log_likelihood(samples):
         x = samples.x
