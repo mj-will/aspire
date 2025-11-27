@@ -58,6 +58,8 @@ examples, and the complete API reference.
 
     installation
     user_guide
+    recipes
+    multiprocessing
     examples
     entry_points
     api
