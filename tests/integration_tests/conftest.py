@@ -116,7 +116,8 @@ def log_prior(dims, xp):
         "smc",
         "emcee",
         "minipcn",
-        "blackjax_smc",
+        "blackjax_smc_rwmh",
+        "blackjax_smc_nuts",
     ]
 )
 def sampler_config(request):
@@ -126,7 +127,7 @@ def sampler_config(request):
         return SamplerConfig(
             sampler="emcee",
             sampler_kwargs={
-                "nsteps": 500,
+                "nsteps": 100,
             },
         )
     elif request.param == "minipcn":
@@ -157,7 +158,7 @@ def sampler_config(request):
                 },
             },
         )
-    elif request.param == "blackjax_smc":
+    elif request.param == "blackjax_smc_rwmh":
         return SamplerConfig(
             sampler="blackjax_smc",
             sampler_kwargs={
@@ -165,7 +166,19 @@ def sampler_config(request):
                 "sampler_kwargs": {
                     "algorithm": "rwmh",
                     "sigma": 0.1,
-                    "n_steps": 500,
+                    "n_steps": 10,
+                },
+            },
+        )
+    elif request.param == "blackjax_smc_nuts":
+        return SamplerConfig(
+            sampler="blackjax_smc",
+            sampler_kwargs={
+                "adaptive": True,
+                "sampler_kwargs": {
+                    "algorithm": "nuts",
+                    "step_size": 0.1,
+                    "n_steps": 10,
                 },
             },
         )

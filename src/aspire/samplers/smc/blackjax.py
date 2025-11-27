@@ -220,7 +220,9 @@ class BlackJAXSMC(SMCSampler):
 
         elif algorithm == "nuts":
             # Initialize step size and mass matrix if not provided
-            inverse_mass_matrix = self.sampler_kwargs["inverse_mass_matrix"]
+            inverse_mass_matrix = self.sampler_kwargs.get(
+                "inverse_mass_matrix"
+            )
             if inverse_mass_matrix is None:
                 inverse_mass_matrix = jax.numpy.eye(self.dims)
 
@@ -258,8 +260,13 @@ class BlackJAXSMC(SMCSampler):
             z_final = final_states.position
 
             # Calculate acceptance rates
-            acceptance_rates = jax.numpy.mean(all_infos.is_accepted, axis=1)
-            mean_acceptance = jax.numpy.mean(acceptance_rates)
+            try:
+                acceptance_rates = jax.numpy.mean(
+                    all_infos.is_accepted, axis=1
+                )
+                mean_acceptance = jax.numpy.mean(acceptance_rates)
+            except AttributeError:
+                mean_acceptance = np.nan
 
         elif algorithm == "hmc":
             # Initialize HMC sampler
@@ -294,8 +301,13 @@ class BlackJAXSMC(SMCSampler):
 
             final_states, all_infos = jax.vmap(init_and_sample)(keys, z_jax)
             z_final = final_states.position
-            acceptance_rates = jax.numpy.mean(all_infos.is_accepted, axis=1)
-            mean_acceptance = jax.numpy.mean(acceptance_rates)
+            try:
+                acceptance_rates = jax.numpy.mean(
+                    all_infos.is_accepted, axis=1
+                )
+                mean_acceptance = jax.numpy.mean(acceptance_rates)
+            except AttributeError:
+                mean_acceptance = np.nan
 
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
