@@ -44,8 +44,8 @@ switch namespaces or merge multiple runs with
 Flows and transforms
 --------------------
 
-Aspire can work with any proposal that implements ``sample_and_log_prob`` and
-``log_prob``; normalising flows remain the default. Flows are defined via
+Aspire can work with any flow that implements ``sample_and_log_prob`` and
+``log_prob``. Flows are defined via
 :class:`aspire.flows.base.Flow` and instantiated by
 :meth:`aspire.Aspire.init_flow`. By default Aspire uses the ``zuko``
 implementation of Masked Autoregressive Flows on top of PyTorch. The flow is
@@ -60,6 +60,55 @@ estimator (requires the `zuko` backend).
 
 External flow implementations can be plugged in via the
 ``aspire.flows`` entry point group. See :ref:`custom_flows` for details.
+
+Transform mechanics
+~~~~~~~~~~~~~~~~~~~
+
+Aspire keeps a clear separation between your native parameters and the space
+where flows or kernels operate:
+
+* :class:`aspire.transforms.FlowTransform` is attached to every flow created by
+  :meth:`aspire.Aspire.init_flow`. By default, it maps bounded parameters to the real line (``probit`` or
+  ``logit``), and recentres / rescales dimensions with an affine
+  transform learned from the training samples. Log-Jacobian terms are tracked so
+  calls to ``log_prob`` or ``sample_and_log_prob`` remain properly normalised.
+  ``bounded_to_unbounded`` and ``affine_transform`` can be specified when creating
+  the Aspire instance to control this behaviour.
+* The same components are exposed via :class:`aspire.transforms.CompositeTransform`
+  if you want to opt out of the bounded-to-unbounded step or the affine
+  whitening when building custom transports.
+
+Preconditioning inside samplers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+SMC and MCMC samplers also work in a transformed space. They fit the chosen
+``preconditioning`` transform to the initial particles, perform moves there, and
+then call ``inverse(...)`` (including the log-Jacobian) whenever the likelihood
+or prior is evaluated. Configure it via
+:meth:`aspire.Aspire.sample_posterior`:
+
+* ``"default"`` / ``"standard"`` uses :class:`aspire.transforms.CompositeTransform`
+  with bounded-to-unbounded and affine scaling turned off by default; periodic
+  wrapping still applies. To whiten dimensions or map bounds to the real line,
+  pass ``preconditioning_kwargs={"affine_transform": True, "bounded_to_unbounded": True}``.
+* ``"flow"`` fits a lightweight :class:`aspire.transforms.FlowPreconditioningTransform`
+  to the current particles and treats it as a transport map during SMC/MCMC
+  updates. This reuses the same bounded / periodic handling while providing a
+  richer geometry for the kernels.
+* ``None`` leaves the sampler in the original parameterisation with an identity
+  transform. The importance sampler defaults to this; other samplers default to
+  ``"standard"`` so periodic parameters are at least kept consistent with their
+  bounds.
+
+
+.. note::
+
+    By default, the preconditioning transform does not include bounded-to-unbounded
+    steps. This means your log-prior and log-likelihood must handle points that
+    lie outside the specified bounds (e.g. by returning ``-inf``). If you want
+    the sampler to automatically map bounded parameters to an unconstrained
+    space, enable the ``bounded_to_unbounded`` option in
+    ``preconditioning_kwargs``.
 
 Sampling strategies
 -------------------
@@ -100,11 +149,6 @@ Sequential Monte Carlo
 ``emcee_smc``
     Replaces the internal MCMC move with the ``emcee`` ensemble sampler,
     providing a gradient-free option that still benefits from SMC tempering.
-
-You can plug in custom preconditioning by setting ``preconditioning`` to
-``"standard"`` (affine normalisation based on current samples), ``"flow"``
-(use the fitted flow as a transport map), or ``None`` to disable additional
-transforms.
 
 History, diagnostics, and persistence
 -------------------------------------
