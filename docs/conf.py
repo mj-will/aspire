@@ -29,6 +29,7 @@ extensions = [
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
+    "autoapi.extension",
 ]
 
 autodoc_typehints = "description"
@@ -40,6 +41,19 @@ napoleon_preprocess_types = True
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
+# -- Configure autoapi -------------------------------------------------------
+
+autoapi_type = "python"
+autoapi_dirs = ["../src/aspire/"]
+autoapi_add_toctree_entry = True
+autoapi_options = [
+    "members",
+    "imported-members",
+    "show-inheritance",
+    "show-module-summary",
+    "undoc-members",
+]
 
 # -- Options for HTML output -------------------------------------------------
 
