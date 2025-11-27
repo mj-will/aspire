@@ -22,7 +22,6 @@ the package can be imported and used as `aspire`.
 ## Quickstart
 
 ```python
-
 import numpy as np
 from aspire import Aspire, Samples
 
