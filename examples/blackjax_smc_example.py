@@ -89,8 +89,8 @@ true_posterior_samples = Samples(
 # We draw initial samples from two Gaussians centered away from the true modes
 # to demonstrate the ability of SMC to explore the posterior
 key, offset_key1, offset_key2 = jax.random.split(key, 3)
-offset_1 = jax.random.uniform(offset_key1, shape=(dims,), minval=-2, maxval=2)
-offset_2 = jax.random.uniform(offset_key2, shape=(dims,), minval=-2, maxval=2)
+offset_1 = jax.random.uniform(offset_key1, shape=(dims,), minval=-3, maxval=3)
+offset_2 = jax.random.uniform(offset_key2, shape=(dims,), minval=-3, maxval=3)
 key, init_key1, init_key2 = jax.random.split(key, 3)
 initial_samples = jnp.concatenate(
     [
@@ -120,16 +120,23 @@ fit_history = aspire.fit(initial_samples, max_epochs=30)
 fit_history.plot_loss().savefig(outdir / "loss.png")
 
 # Sample from the posterior using SMC
+# We use BlackJAX's NUTS as the MCMC kernel within SMC
+# We enable the bounded to unbounded transform in the preconditioning to avoid
+# issues with NUTS on bounded spaces
 samples, history = aspire.sample_posterior(
-    sampler="blackjax_smc",  # Sequential Monte Carlo, this uses the default minipcn sampler
+    sampler="blackjax_smc",  # use the BlackJAX SMC sampler
     n_samples=500,  # Number of particles in SMC
     n_final_samples=5000,  # Number of samples to draw from the final distribution
     adaptive=True,
     target_efficiency=0.8,
     sampler_kwargs=dict(  # Keyword arguments for the specific sampler
-        algorithm="rwmh",
-        sigma=1.0,
-        n_steps=100,
+        algorithm="nuts",  # Use NUTS within SMC
+        step_size=0.1,  # Step size for NUTS, this will need tuning
+        n_steps=20,  # Number of leapfrog steps for NUTS
+    ),
+    preconditioning_kwargs=dict(
+        affine_transform=True,  # Use affine transform preconditioning
+        bounded_to_unbounded=True,  # Transform bounded parameters to unbounded space
     ),
     return_history=True,  # To return the SMC history (e.g., ESS, betas)
 )
