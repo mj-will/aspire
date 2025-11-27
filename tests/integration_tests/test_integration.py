@@ -21,7 +21,7 @@ def test_integration_zuko(
     dtype,
     tmp_path,
 ):
-    if sampler_config.sampler == "blackjax_smc":
+    if "blackjax_smc" in sampler_config.sampler:
         pytest.xfail(reason="BlackJAX requires JAX arrays.")
 
     aspire = Aspire(
@@ -63,7 +63,7 @@ def test_integration_flowjax(
 ):
     import jax
 
-    if sampler_config.sampler == "blackjax_smc":
+    if "blackjax_smc" in sampler_config.sampler:
         if samples_backend != "jax":
             pytest.xfail(reason="BlackJAX requires JAX arrays.")
         if dtype == "float32":
