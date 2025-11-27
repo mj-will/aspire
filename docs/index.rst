@@ -62,4 +62,3 @@ examples, and the complete API reference.
     multiprocessing
     examples
     entry_points
-    api
