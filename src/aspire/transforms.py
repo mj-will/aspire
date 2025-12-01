@@ -332,6 +332,7 @@ class CompositeTransform(BaseTransform):
             prior_bounds=self.prior_bounds,
             bounded_to_unbounded=self.bounded_to_unbounded,
             bounded_transform=self.bounded_transform,
+            affine_transform=self.affine_transform,
             device=self.device,
             xp=xp or self.xp,
             eps=self.eps,
