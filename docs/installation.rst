@@ -14,7 +14,11 @@ Install the library from PyPI (note the published name):
 
    $ python -m pip install aspire-inference
 
-The installed distribution exposes the ``aspire`` import namespace.
+The installed distribution exposes the ``aspire`` import namespace. By default,
+this doesn't include any optional dependencies beyond the core ones listed above.
+We recommend installing with at least one backend for normalizing flows, e.g.
+``torch`` (PyTorch + ``zuko``) or ``jax`` (JAX + ``flowjax``).
+and optionally the ``minipcn`` SMC kernel.
 
 Optional extras
 ---------------
