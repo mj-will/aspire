@@ -46,7 +46,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 autoapi_type = "python"
 autoapi_dirs = ["../src/aspire/"]
-autoapi_add_toctree_entry = True
+autoapi_add_toctree_entry = False
 autoapi_options = [
     "members",
     "imported-members",
