@@ -61,3 +61,11 @@ examples, and the complete API reference.
     multiprocessing
     examples
     entry_points
+    API Reference </autoapi/aspire/index>
+
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Related Packages
+
+    aspire-bilby <https://aspire.readthedocs.io/projects/aspire-bilby/en/latest/>
