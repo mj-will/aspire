@@ -3,7 +3,7 @@ from functools import partial
 import numpy as np
 
 from ...samples import SMCSamples
-from ...utils import to_numpy, track_calls
+from ...utils import asarray, determine_backend_name, track_calls
 from .base import NumpySMCSampler
 
 
@@ -13,7 +13,7 @@ class MiniPCNSMC(NumpySMCSampler):
     rng = None
 
     def log_prob(self, x, beta=None):
-        return to_numpy(super().log_prob(x, beta))
+        return super().log_prob(x, beta)
 
     @track_calls
     def sample(
@@ -29,11 +29,14 @@ class MiniPCNSMC(NumpySMCSampler):
         sampler_kwargs: dict | None = None,
         rng: np.random.Generator | None = None,
     ):
+        from orng import ArrayRNG
+
         self.sampler_kwargs = sampler_kwargs or {}
         self.sampler_kwargs.setdefault("n_steps", 5 * self.dims)
         self.sampler_kwargs.setdefault("target_acceptance_rate", 0.234)
         self.sampler_kwargs.setdefault("step_fn", "tpcn")
-        self.rng = rng or np.random.default_rng()
+        self.backend_str = determine_backend_name(xp=self.xp)
+        self.rng = rng or ArrayRNG(backend=self.backend_str)
         return super().sample(
             n_samples,
             n_steps=n_steps,
@@ -58,9 +61,12 @@ class MiniPCNSMC(NumpySMCSampler):
             target_acceptance_rate=self.sampler_kwargs[
                 "target_acceptance_rate"
             ],
+            xp=self.xp,
         )
         # Map to transformed dimension for sampling
-        z = to_numpy(self.fit_preconditioning_transform(particles.x))
+        z = asarray(
+            self.fit_preconditioning_transform(particles.x), xp=self.xp
+        )
         chain, history = sampler.sample(
             z,
             n_steps=n_steps or self.sampler_kwargs["n_steps"],
