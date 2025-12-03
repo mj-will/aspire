@@ -12,7 +12,13 @@ import h5py
 import wrapt
 from array_api_compat import (
     array_namespace,
+    is_cupy_namespace,
+    is_dask_namespace,
     is_jax_array,
+    is_jax_namespace,
+    is_ndonnx_namespace,
+    is_numpy_namespace,
+    is_pydata_sparse_namespace,
     is_torch_array,
     is_torch_namespace,
     to_device,
@@ -26,6 +32,17 @@ if TYPE_CHECKING:
     from .aspire import Aspire
 
 logger = logging.getLogger(__name__)
+
+
+IS_NAMESPACE_FUNCTIONS = {
+    "numpy": is_numpy_namespace,
+    "torch": is_torch_namespace,
+    "jax": is_jax_namespace,
+    "cupy": is_cupy_namespace,
+    "dask": is_dask_namespace,
+    "pydata_sparse": is_pydata_sparse_namespace,
+    "ndonnx": is_ndonnx_namespace,
+}
 
 
 def configure_logger(
@@ -251,6 +268,35 @@ def asarray(x, xp: Any = None, **kwargs) -> Array:
         return xp.utils.dlpack.from_dlpack(x)
     else:
         return xp.asarray(x, **kwargs)
+
+
+def determine_backend_name(
+    x: Array | None = None, xp: Any | None = None
+) -> str:
+    """Determine the backend name from an array or array API module.
+
+    Parameters
+    ----------
+    x : Array or None
+        The array to infer the backend from. If None, xp must be provided.
+    xp : Any or None
+        The array API module to infer the backend from. If None, x must be provided.
+
+    Returns
+    -------
+    str
+        The name of the backend. If the backend cannot be determined, returns "unknown".
+    """
+    if x is not None:
+        xp = array_namespace(x)
+    if xp is None:
+        raise ValueError(
+            "Either x or xp must be provided to determine backend."
+        )
+    for name, is_namespace_fn in IS_NAMESPACE_FUNCTIONS.items():
+        if is_namespace_fn(xp):
+            return name
+    return "unknown"
 
 
 def resolve_dtype(dtype: Any | str | None, xp: Any) -> Any | None:
