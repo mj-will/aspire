@@ -251,7 +251,7 @@ def to_numpy(x: Array, **kwargs) -> np.ndarray:
         return np.asarray(x, **kwargs)
 
 
-def asarray(x, xp: Any = None, **kwargs) -> Array:
+def asarray(x, xp: Any = None, dtype: Any | None = None, **kwargs) -> Array:
     """Convert an array to the specified array API.
 
     Parameters
@@ -261,13 +261,22 @@ def asarray(x, xp: Any = None, **kwargs) -> Array:
     xp : Any
         The array API to use for the conversion. If None, the array API
         is inferred from the input array.
+    dtype : Any | str | None
+        The dtype to use for the conversion. If None, the dtype is not changed.
     kwargs : dict
         Additional keyword arguments to pass to xp.asarray.
     """
+    # Handle DLPack conversion from JAX to PyTorch to avoid shape issues when
+    # passing JAX arrays directly to torch.asarray.
     if is_jax_array(x) and is_torch_namespace(xp):
-        return xp.utils.dlpack.from_dlpack(x)
-    else:
-        return xp.asarray(x, **kwargs)
+        tensor = xp.utils.dlpack.from_dlpack(x)
+        if dtype is not None:
+            tensor = tensor.to(resolve_dtype(dtype, xp=xp))
+        return tensor
+
+    if dtype is not None:
+        kwargs["dtype"] = resolve_dtype(dtype, xp=xp)
+    return xp.asarray(x, **kwargs)
 
 
 def determine_backend_name(

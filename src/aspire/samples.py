@@ -425,19 +425,23 @@ class Samples(BaseSamples):
 
     def to_namespace(self, xp):
         return self.__class__(
-            x=asarray(self.x, xp),
+            x=asarray(self.x, xp, dtype=self.dtype),
             parameters=self.parameters,
-            log_likelihood=asarray(self.log_likelihood, xp)
+            log_likelihood=asarray(self.log_likelihood, xp, dtype=self.dtype)
             if self.log_likelihood is not None
             else None,
-            log_prior=asarray(self.log_prior, xp)
+            log_prior=asarray(self.log_prior, xp, dtype=self.dtype)
             if self.log_prior is not None
             else None,
-            log_q=asarray(self.log_q, xp) if self.log_q is not None else None,
-            log_evidence=asarray(self.log_evidence, xp)
+            log_q=asarray(self.log_q, xp, dtype=self.dtype)
+            if self.log_q is not None
+            else None,
+            log_evidence=asarray(self.log_evidence, xp, dtype=self.dtype)
             if self.log_evidence is not None
             else None,
-            log_evidence_error=asarray(self.log_evidence_error, xp)
+            log_evidence_error=asarray(
+                self.log_evidence_error, xp, dtype=self.dtype
+            )
             if self.log_evidence_error is not None
             else None,
         )

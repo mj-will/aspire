@@ -3,7 +3,11 @@ from functools import partial
 import numpy as np
 
 from ...samples import SMCSamples
-from ...utils import asarray, determine_backend_name, track_calls
+from ...utils import (
+    asarray,
+    determine_backend_name,
+    track_calls,
+)
 from .base import NumpySMCSampler
 
 
@@ -65,7 +69,9 @@ class MiniPCNSMC(NumpySMCSampler):
         )
         # Map to transformed dimension for sampling
         z = asarray(
-            self.fit_preconditioning_transform(particles.x), xp=self.xp
+            self.fit_preconditioning_transform(particles.x),
+            xp=self.xp,
+            dtype=self.dtype,
         )
         chain, history = sampler.sample(
             z,
