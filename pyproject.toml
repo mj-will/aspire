@@ -39,7 +39,8 @@ torch = [
     "tqdm",
 ]
 minipcn = [
-    "minipcn",
+    "minipcn[array-api]>=0.2.0a3",
+    "orng",
 ]
 emcee = [
     "emcee",

@@ -4,7 +4,7 @@ from typing import Any, Callable
 from ..flows.base import Flow
 from ..samples import Samples
 from ..transforms import IdentityTransform
-from ..utils import track_calls
+from ..utils import asarray, track_calls
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,11 @@ class Sampler:
 
     def fit_preconditioning_transform(self, x):
         """Fit the data transform to the data."""
-        x = self.preconditioning_transform.xp.asarray(x)
+        x = asarray(
+            x,
+            xp=self.preconditioning_transform.xp,
+            dtype=self.preconditioning_transform.dtype,
+        )
         return self.preconditioning_transform.fit(x)
 
     @track_calls
