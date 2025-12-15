@@ -1,3 +1,4 @@
+import copy
 import logging
 from typing import Any, Callable
 
@@ -158,11 +159,24 @@ class SMCSampler(MCMCSampler):
         target_efficiency: float = 0.5,
         target_efficiency_rate: float = 1.0,
         n_final_samples: int | None = None,
+        checkpoint_callback: Callable[[dict], None] | None = None,
+        checkpoint_every: int | None = None,
+        checkpoint_file_path: str | None = None,
+        resume_from: str | bytes | dict | None = None,
     ) -> SMCSamples:
-        samples = self.draw_initial_samples(n_samples)
-        samples = SMCSamples.from_samples(
-            samples, xp=self.xp, beta=0.0, dtype=self.dtype
-        )
+        resumed = resume_from is not None
+        if resumed:
+            samples, beta, iterations = self.restore_from_checkpoint(
+                resume_from
+            )
+        else:
+            samples = self.draw_initial_samples(n_samples)
+            samples = SMCSamples.from_samples(
+                samples, xp=self.xp, beta=0.0, dtype=self.dtype
+            )
+            beta = 0.0
+            iterations = 0
+            self.history = SMCHistory()
         self.fit_preconditioning_transform(samples.x)
 
         if self.xp.isnan(samples.log_q).any():
@@ -178,8 +192,6 @@ class SMCSampler(MCMCSampler):
         self.sampler_kwargs = self.sampler_kwargs or {}
         n_final_steps = self.sampler_kwargs.pop("n_final_steps", None)
 
-        self.history = SMCHistory()
-
         self.target_efficiency = target_efficiency
         self.target_efficiency_rate = target_efficiency_rate
 
@@ -190,7 +202,6 @@ class SMCSampler(MCMCSampler):
         else:
             beta_step = np.nan
         self.adaptive = adaptive
-        beta = 0.0
 
         if min_step is None:
             if max_n_steps is None:
@@ -202,55 +213,85 @@ class SMCSampler(MCMCSampler):
         else:
             self.adaptive_min_step = False
 
-        iterations = 0
-        while True:
-            iterations += 1
-
-            beta, min_step = self.determine_beta(
-                samples,
-                beta,
-                beta_step,
-                min_step,
+        iterations = iterations or 0
+        if checkpoint_callback is None and checkpoint_every is not None:
+            checkpoint_callback = self.default_file_checkpoint_callback(
+                checkpoint_file_path
             )
-            self.history.eff_target.append(
-                self.current_target_efficiency(beta)
+        if checkpoint_callback is not None and checkpoint_every is None:
+            checkpoint_every = 1
+
+        run_smc_loop = True
+        if resumed:
+            last_beta = self.history.beta[-1] if self.history.beta else beta
+            if last_beta >= 1.0:
+                run_smc_loop = False
+
+        def maybe_checkpoint(force: bool = False):
+            if checkpoint_callback is None:
+                return
+            should_checkpoint = force or (
+                checkpoint_every is not None
+                and checkpoint_every > 0
+                and iterations % checkpoint_every == 0
             )
+            if not should_checkpoint:
+                return
+            state = self.build_checkpoint_state(samples, iterations, beta)
+            checkpoint_callback(state)
 
-            logger.info(f"it {iterations} - beta: {beta}")
-            self.history.beta.append(beta)
+        if run_smc_loop:
+            while True:
+                iterations += 1
 
-            ess = effective_sample_size(samples.log_weights(beta))
-            eff = ess / len(samples)
-            if eff < 0.1:
-                logger.warning(
-                    f"it {iterations} - Low sample efficiency: {eff:.2f}"
+                beta, min_step = self.determine_beta(
+                    samples,
+                    beta,
+                    beta_step,
+                    min_step,
                 )
-            self.history.ess.append(ess)
-            logger.info(
-                f"it {iterations} - ESS: {ess:.1f} ({eff:.2f} efficiency)"
-            )
-            self.history.ess_target.append(
-                effective_sample_size(samples.log_weights(1.0))
-            )
+                self.history.eff_target.append(
+                    self.current_target_efficiency(beta)
+                )
 
-            log_evidence_ratio = samples.log_evidence_ratio(beta)
-            log_evidence_ratio_var = samples.log_evidence_ratio_variance(beta)
-            self.history.log_norm_ratio.append(log_evidence_ratio)
-            self.history.log_norm_ratio_var.append(log_evidence_ratio_var)
-            logger.info(
-                f"it {iterations} - Log evidence ratio: {log_evidence_ratio:.2f} +/- {np.sqrt(log_evidence_ratio_var):.2f}"
-            )
+                logger.info(f"it {iterations} - beta: {beta}")
+                self.history.beta.append(beta)
 
-            samples = samples.resample(beta, rng=self.rng)
+                ess = effective_sample_size(samples.log_weights(beta))
+                eff = ess / len(samples)
+                if eff < 0.1:
+                    logger.warning(
+                        f"it {iterations} - Low sample efficiency: {eff:.2f}"
+                    )
+                self.history.ess.append(ess)
+                logger.info(
+                    f"it {iterations} - ESS: {ess:.1f} ({eff:.2f} efficiency)"
+                )
+                self.history.ess_target.append(
+                    effective_sample_size(samples.log_weights(1.0))
+                )
 
-            samples = self.mutate(samples, beta)
-            if beta == 1.0 or (
-                max_n_steps is not None and iterations >= max_n_steps
-            ):
-                break
+                log_evidence_ratio = samples.log_evidence_ratio(beta)
+                log_evidence_ratio_var = samples.log_evidence_ratio_variance(
+                    beta
+                )
+                self.history.log_norm_ratio.append(log_evidence_ratio)
+                self.history.log_norm_ratio_var.append(log_evidence_ratio_var)
+                logger.info(
+                    f"it {iterations} - Log evidence ratio: {log_evidence_ratio:.2f} +/- {np.sqrt(log_evidence_ratio_var):.2f}"
+                )
 
-        # If n_final_samples is not None, perform additional mutations steps
-        if n_final_samples is not None:
+                samples = samples.resample(beta, rng=self.rng)
+
+                samples = self.mutate(samples, beta)
+                maybe_checkpoint()
+                if beta == 1.0 or (
+                    max_n_steps is not None and iterations >= max_n_steps
+                ):
+                    break
+
+        # If n_final_samples is specified and differs, perform additional mutation steps
+        if n_final_samples is not None and len(samples.x) != n_final_samples:
             logger.info(f"Generating {n_final_samples} final samples")
             final_samples = samples.resample(
                 1.0, n_samples=n_final_samples, rng=self.rng
@@ -263,6 +304,7 @@ class SMCSampler(MCMCSampler):
         samples.log_evidence_error = samples.xp.sqrt(
             samples.xp.sum(asarray(self.history.log_norm_ratio_var, self.xp))
         )
+        maybe_checkpoint(force=True)
 
         final_samples = samples.to_standard_samples()
         logger.info(
@@ -288,6 +330,49 @@ class SMCSampler(MCMCSampler):
             log_prob, self.xp.isnan(log_prob), -self.xp.inf
         )
         return log_prob
+
+    def build_checkpoint_state(
+        self, samples: SMCSamples, iteration: int, beta: float
+    ) -> dict:
+        """Prepare a serializable checkpoint payload for the sampler state."""
+        return super().build_checkpoint_state(
+            samples,
+            iteration,
+            meta={"beta": beta},
+        )
+
+    def _checkpoint_extra_state(self) -> dict:
+        history_copy = copy.deepcopy(self.history)
+        rng_state = (
+            self.rng.bit_generator.state
+            if hasattr(self.rng, "bit_generator")
+            else None
+        )
+        return {
+            "history": history_copy,
+            "rng_state": rng_state,
+            "sampler_kwargs": getattr(self, "sampler_kwargs", None),
+        }
+
+    def restore_from_checkpoint(
+        self, source: str | bytes | dict
+    ) -> tuple[SMCSamples, float, int]:
+        samples, state = super().restore_from_checkpoint(source)
+        meta = state.get("meta", {}) if isinstance(state, dict) else {}
+        beta = None
+        if isinstance(meta, dict):
+            beta = meta.get("beta", None)
+        if beta is None:
+            beta = state.get("beta", 0.0)
+        iteration = state.get("iteration", 0)
+        self.history = state.get("history", SMCHistory())
+        rng_state = state.get("rng_state")
+        if rng_state is not None and hasattr(self.rng, "bit_generator"):
+            self.rng.bit_generator.state = rng_state
+        samples = SMCSamples.from_samples(
+            samples, xp=self.xp, beta=beta, dtype=self.dtype
+        )
+        return samples, beta, iteration
 
 
 class NumpySMCSampler(SMCSampler):

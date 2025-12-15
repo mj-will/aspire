@@ -84,6 +84,10 @@ class BlackJAXSMC(SMCSampler):
         n_final_samples: int | None = None,
         sampler_kwargs: dict | None = None,
         rng_key=None,
+        checkpoint_callback=None,
+        checkpoint_every: int | None = None,
+        checkpoint_file_path: str | None = None,
+        resume_from: str | bytes | dict | None = None,
     ):
         """Sample using BlackJAX SMC.
 
@@ -132,6 +136,10 @@ class BlackJAXSMC(SMCSampler):
             target_efficiency=target_efficiency,
             target_efficiency_rate=target_efficiency_rate,
             n_final_samples=n_final_samples,
+            checkpoint_callback=checkpoint_callback,
+            checkpoint_every=checkpoint_every,
+            checkpoint_file_path=checkpoint_file_path,
+            resume_from=resume_from,
         )
 
     def mutate(self, particles, beta, n_steps=None):

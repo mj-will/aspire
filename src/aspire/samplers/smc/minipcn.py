@@ -32,6 +32,10 @@ class MiniPCNSMC(NumpySMCSampler):
         n_final_samples: int | None = None,
         sampler_kwargs: dict | None = None,
         rng: np.random.Generator | None = None,
+        checkpoint_callback=None,
+        checkpoint_every: int | None = None,
+        checkpoint_file_path: str | None = None,
+        resume_from: str | bytes | dict | None = None,
     ):
         from orng import ArrayRNG
 
@@ -50,6 +54,10 @@ class MiniPCNSMC(NumpySMCSampler):
             n_final_samples=n_final_samples,
             min_step=min_step,
             max_n_steps=max_n_steps,
+            checkpoint_callback=checkpoint_callback,
+            checkpoint_every=checkpoint_every,
+            checkpoint_file_path=checkpoint_file_path,
+            resume_from=resume_from,
         )
 
     def mutate(self, particles, beta, n_steps=None):
