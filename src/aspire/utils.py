@@ -601,6 +601,7 @@ def decode_from_hdf5(value: Any) -> Any:
             return None
         if value == "__empty_dict__":
             return {}
+        return value
 
     if isinstance(value, np.ndarray):
         # Try to collapse 0-D arrays into scalars
