@@ -28,7 +28,7 @@ def test_resume_from_file_smc(
         samples = aspire.sample_posterior(
             n_samples=20,
             sampler="smc",
-            n_final_samples=20,
+            n_final_samples=25,
             sampler_kwargs={"n_steps": 10},
         )
 
@@ -43,7 +43,7 @@ def test_resume_from_file_smc(
             sampler="smc",
         )
 
-    assert len(resumed_samples.x) == len(samples.x)
+    assert len(resumed_samples.x) == 25
 
 
 def test_resume_from_file_manual_call(
@@ -71,9 +71,9 @@ def test_resume_from_file_manual_call(
     checkpoint_file = tmp_path / "ckpt_manual.h5"
     with aspire.auto_checkpoint(checkpoint_file, every=1):
         aspire.sample_posterior(
-            n_samples=10,
+            n_samples=20,
             sampler="smc",
-            n_final_samples=10,
+            n_final_samples=25,
             sampler_kwargs={"n_steps": 10},
         )
 
@@ -85,4 +85,4 @@ def test_resume_from_file_manual_call(
 
     # Manually call sample_posterior without specifying checkpoint args; defaults should be primed
     resumed_samples = resumed.sample_posterior(sampler="smc")
-    assert len(resumed_samples.x) == 10
+    assert len(resumed_samples.x) == 25
