@@ -479,7 +479,11 @@ class Aspire:
                 if checkpoint_save_config:
                     if "aspire_config" in h5_file:
                         del h5_file["aspire_config"]
-                    self.save_config(h5_file, include_sampler_config=True)
+                    self.save_config(
+                        h5_file,
+                        include_sampler_config=True,
+                        include_sample_calls=False,
+                    )
                     saved_config = True
                     if defaults is not None:
                         defaults["saved_config"] = True
@@ -509,7 +513,11 @@ class Aspire:
                 if checkpoint_save_config and not saved_config:
                     if "aspire_config" in h5_file:
                         del h5_file["aspire_config"]
-                    self.save_config(h5_file, include_sampler_config=True)
+                    self.save_config(
+                        h5_file,
+                        include_sampler_config=True,
+                        include_sample_calls=False,
+                    )
                     if defaults is not None:
                         defaults["saved_config"] = True
                 if (

@@ -117,7 +117,7 @@ class Sampler:
         meta: dict | None = None,
     ) -> dict:
         """Prepare a serializable checkpoint payload for the sampler state."""
-        checkpoint_samples = samples.to_numpy()
+        checkpoint_samples = samples
         base_state = {
             "sampler": self.__class__.__name__,
             "iteration": iteration,

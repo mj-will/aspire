@@ -671,15 +671,15 @@ def resolve_xp(xp_name: str | None):
     if name.startswith("array_api_compat."):
         name = name.removeprefix("array_api_compat.")
     try:
-        if name == "numpy":
+        if name in {"numpy", "numpy.ndarray"}:
             import array_api_compat.numpy as np_xp
 
             return np_xp
-        if name == "jax":
+        if name in {"jax", "jax.numpy"}:
             import jax.numpy as jnp
 
             return jnp
-        if name == "torch":
+        if name in {"torch"}:
             import array_api_compat.torch as torch_xp
 
             return torch_xp
@@ -688,6 +688,43 @@ def resolve_xp(xp_name: str | None):
             "Failed to resolve xp '%s', defaulting to None", xp_name
         )
     return None
+
+
+def infer_device(x, xp):
+    """
+    Best-effort device inference that avoids non-portable identifiers.
+
+    Returns None for numpy/jax backends; returns the backend device object
+    for torch/cupy if available.
+    """
+    if xp is None or is_numpy_namespace(xp) or is_jax_namespace(xp):
+        return None
+    try:
+        from array_api_compat import device
+
+        return device(x)
+    except Exception:
+        return None
+
+
+def safe_to_device(x, device, xp):
+    """
+    Move to device if specified; otherwise return input.
+
+    Skips moves for numpy/jax/None devices; logs and returns input on failure.
+    """
+    if device is None:
+        return x
+    if xp is None or is_numpy_namespace(xp) or is_jax_namespace(xp):
+        return x
+    try:
+        return to_device(x, device)
+    except Exception:
+        logger.warning(
+            "Failed to move array to device %s; leaving on current device",
+            device,
+        )
+        return x
 
 
 def recursively_save_to_h5_file(h5_file, path, dictionary):

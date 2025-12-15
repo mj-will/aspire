@@ -8,10 +8,10 @@ from ...utils import (
     determine_backend_name,
     track_calls,
 )
-from .base import NumpySMCSampler
+from .base import SMCSampler
 
 
-class MiniPCNSMC(NumpySMCSampler):
+class MiniPCNSMC(SMCSampler):
     """MiniPCN SMC sampler."""
 
     rng = None

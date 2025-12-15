@@ -9,19 +9,18 @@ from typing import Any, Callable
 import numpy as np
 from array_api_compat import (
     array_namespace,
-    is_numpy_namespace,
-    to_device,
 )
-from array_api_compat import device as api_device
 from array_api_compat.common._typing import Array
 from matplotlib.figure import Figure
 
 from .utils import (
     asarray,
     convert_dtype,
+    infer_device,
     logsumexp,
     recursively_save_to_h5_file,
     resolve_dtype,
+    safe_to_device,
     to_numpy,
 )
 
@@ -67,8 +66,6 @@ class BaseSamples:
         if self.xp is None:
             self.xp = array_namespace(self.x)
         # Numpy arrays need to be on the CPU before being converted
-        if is_numpy_namespace(self.xp):
-            self.device = "cpu"
         if self.dtype is not None:
             self.dtype = resolve_dtype(self.dtype, self.xp)
         else:
@@ -76,7 +73,7 @@ class BaseSamples:
             self.dtype = None
         self.x = self.array_to_namespace(self.x, dtype=self.dtype)
         if self.device is None:
-            self.device = api_device(self.x)
+            self.device = infer_device(self.x, self.xp)
         if self.log_likelihood is not None:
             self.log_likelihood = self.array_to_namespace(
                 self.log_likelihood, dtype=self.dtype
@@ -140,8 +137,7 @@ class BaseSamples:
         else:
             kwargs["dtype"] = self.dtype
         x = asarray(x, self.xp, **kwargs)
-        if self.device:
-            x = to_device(x, self.device)
+        x = safe_to_device(x, self.device, self.xp)
         return x
 
     def to_dict(self, flat: bool = True):
@@ -174,7 +170,6 @@ class BaseSamples:
         ----------
         parameters : list[str] | None
             List of parameters to plot. If None, all parameters are plotted.
-        fig : matplotlib.figure.Figure | None
             Figure to plot on. If None, a new figure is created.
         **kwargs : dict
             Additional keyword arguments to pass to corner.corner(). Kwargs
@@ -295,11 +290,26 @@ class BaseSamples:
             state["xp"] = (
                 self.xp.__name__ if hasattr(self.xp, "__name__") else None
             )
+        # ensure device is picklable (e.g., torch.device -> str)
+        if state.get("device") is not None:
+            device_str = str(state["device"])
+            # JAX devices are often host-specific; avoid persisting them
+            if "jax" in state.get("xp", ""):
+                state["device"] = None
+            else:
+                state["device"] = device_str
         return state
 
     def __setstate__(self, state):
         # Restore xp by checking the namespace of x
         state["xp"] = array_namespace(state["x"])
+        # device may be string; leave as-is or None
+        device = state.get("device")
+        if device is not None and "jax" in getattr(
+            state["xp"], "__name__", ""
+        ):
+            device = None
+        state["device"] = device
         self.__dict__.update(state)
 
 
