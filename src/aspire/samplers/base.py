@@ -79,7 +79,7 @@ class Sampler:
         self.n_likelihood_evaluations += len(samples)
         return self._log_likelihood(samples)
 
-    def config_dict(self, include_sample_calls: bool = True) -> dict:
+    def config_dict(self, include_sample_calls: bool = False) -> dict:
         """
         Returns a dictionary with the configuration of the sampler.
 
@@ -87,7 +87,7 @@ class Sampler:
         ----------
         include_sample_calls : bool
             Whether to include the sample calls in the configuration.
-            Default is True.
+            Default is False.
         """
         config = {"sampler_class": self.__class__.__name__}
         if include_sample_calls:
