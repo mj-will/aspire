@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import inspect
 import logging
+import pickle
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
+from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 import array_api_compat.numpy as np
@@ -628,6 +630,64 @@ def decode_from_hdf5(value: Any) -> Any:
 
     # Fallback for ints, floats, strs, etc.
     return value
+
+
+def dump_pickle_to_hdf(memfp, fp, path=None, dsetname="state"):
+    """Dump pickled data to an HDF5 file object."""
+    memfp.seek(0)
+    bdata = np.frombuffer(memfp.read(), dtype="S1")
+    target = fp.require_group(path) if path is not None else fp
+    if dsetname not in target:
+        target.create_dataset(
+            dsetname, shape=bdata.shape, maxshape=(None,), dtype=bdata.dtype
+        )
+    elif bdata.size != target[dsetname].shape[0]:
+        target[dsetname].resize((bdata.size,))
+    target[dsetname][:] = bdata
+
+
+def dump_state(
+    state,
+    fp,
+    path=None,
+    dsetname="state",
+    protocol=pickle.HIGHEST_PROTOCOL,
+):
+    """Pickle a state object and store it in an HDF5 dataset."""
+    memfp = BytesIO()
+    pickle.dump(state, memfp, protocol=protocol)
+    dump_pickle_to_hdf(memfp, fp, path=path, dsetname=dsetname)
+
+
+def resolve_xp(xp_name: str | None):
+    """
+    Resolve a backend name to the corresponding array_api_compat module.
+
+    Returns None if the name is None or cannot be resolved.
+    """
+    if xp_name is None:
+        return None
+    name = xp_name.lower()
+    if name.startswith("array_api_compat."):
+        name = name.removeprefix("array_api_compat.")
+    try:
+        if name == "numpy":
+            import array_api_compat.numpy as np_xp
+
+            return np_xp
+        if name == "jax":
+            import jax.numpy as jnp
+
+            return jnp
+        if name == "torch":
+            import array_api_compat.torch as torch_xp
+
+            return torch_xp
+    except Exception:
+        logger.warning(
+            "Failed to resolve xp '%s', defaulting to None", xp_name
+        )
+    return None
 
 
 def recursively_save_to_h5_file(h5_file, path, dictionary):
