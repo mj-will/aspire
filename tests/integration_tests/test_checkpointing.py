@@ -1,7 +1,4 @@
-import numpy as np
-
 from aspire import Aspire
-from aspire.samples import Samples
 
 
 def test_resume_from_file_smc(
@@ -11,6 +8,7 @@ def test_resume_from_file_smc(
     parameters,
     prior_bounds,
     bounded_to_unbounded,
+    samples,
 ):
     dims = 2
     aspire = Aspire(
@@ -23,8 +21,7 @@ def test_resume_from_file_smc(
         flow_backend="zuko",
     )
 
-    init_samples = Samples(np.random.normal(size=(50, dims)))
-    aspire.fit(init_samples, n_epochs=1)
+    aspire.fit(samples, n_epochs=10)
 
     checkpoint_file = tmp_path / "ckpt.h5"
     with aspire.auto_checkpoint(checkpoint_file, every=1):
@@ -32,7 +29,7 @@ def test_resume_from_file_smc(
             n_samples=20,
             sampler="smc",
             n_final_samples=20,
-            sampler_kwargs={"n_steps": 2},
+            sampler_kwargs={"n_steps": 10},
         )
 
     resumed = Aspire.resume_from_file(
@@ -56,6 +53,7 @@ def test_resume_from_file_manual_call(
     parameters,
     prior_bounds,
     bounded_to_unbounded,
+    samples,
 ):
     dims = 2
     aspire = Aspire(
@@ -68,8 +66,7 @@ def test_resume_from_file_manual_call(
         flow_backend="zuko",
     )
 
-    init_samples = Samples(np.random.normal(size=(50, dims)))
-    aspire.fit(init_samples, n_epochs=1)
+    aspire.fit(samples, n_epochs=10)
 
     checkpoint_file = tmp_path / "ckpt_manual.h5"
     with aspire.auto_checkpoint(checkpoint_file, every=1):
@@ -77,7 +74,7 @@ def test_resume_from_file_manual_call(
             n_samples=10,
             sampler="smc",
             n_final_samples=10,
-            sampler_kwargs={"n_steps": 1},
+            sampler_kwargs={"n_steps": 10},
         )
 
     resumed = Aspire.resume_from_file(
