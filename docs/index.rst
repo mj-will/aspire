@@ -57,6 +57,7 @@ examples, and the complete API reference.
 
     installation
     user_guide
+    checkpointing
     recipes
     multiprocessing
     examples
