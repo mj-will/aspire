@@ -1,9 +1,12 @@
+import pickle
+
 import array_api_compat.numpy as np_xp
 import array_api_compat.torch as torch_xp
+import h5py
 import jax.numpy as jnp
 import pytest
 
-from aspire.utils import convert_dtype, resolve_dtype
+from aspire.utils import convert_dtype, dump_state, resolve_dtype
 
 
 def _dtype_name(dtype):
@@ -72,3 +75,13 @@ def test_resolve_dtype_passes_through_torch_dtype():
 def test_resolve_dtype_errors_on_unknown():
     with pytest.raises(ValueError):
         resolve_dtype("not_a_real_dtype", np_xp)
+
+
+def test_dump_state_round_trip(tmp_path):
+    state = {"foo": [1, 2, 3], "bar": {"nested": "ok"}}
+    filename = tmp_path / "checkpoint.h5"
+    with h5py.File(filename, "w") as fp:
+        dump_state(state, fp, path="checkpoints", dsetname="state")
+        stored = fp["checkpoints"]["state"][...]
+    restored = pickle.loads(stored.tobytes())
+    assert restored == state

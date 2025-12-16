@@ -92,7 +92,7 @@ class BaseTorchFlow(Flow):
         config = load_from_h5_file(flow_grp, "config")
         config["dtype"] = decode_dtype(torch, config.get("dtype"))
         if "data_transform" in flow_grp:
-            from ..transforms import BaseTransform
+            from ...transforms import BaseTransform
 
             data_transform = BaseTransform.load(
                 flow_grp,

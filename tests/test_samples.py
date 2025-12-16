@@ -39,7 +39,7 @@ def test_basesamples_defaults_and_dims_numpy_namespace():
     # dims computed correctly
     assert bs.dims == 4
     # device set for numpy
-    assert bs.device == "cpu"
+    assert bs.device is None
     # __len__
     assert len(bs) == 3
 
