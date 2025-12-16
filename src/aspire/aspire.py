@@ -20,6 +20,7 @@ from .transforms import (
 )
 from .utils import (
     AspireFile,
+    function_id,
     load_from_h5_file,
     recursively_save_to_h5_file,
     resolve_xp,
@@ -687,8 +688,8 @@ class Aspire:
             method of the sampler.
         """
         config = {
-            "log_likelihood": self.log_likelihood.__name__,
-            "log_prior": self.log_prior.__name__,
+            "log_likelihood": function_id(self.log_likelihood),
+            "log_prior": function_id(self.log_prior),
             "dims": self.dims,
             "parameters": self.parameters,
             "periodic_parameters": self.periodic_parameters,

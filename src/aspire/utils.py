@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 import pickle
@@ -911,3 +912,23 @@ def track_calls(wrapped=None):
         return wrapped_func(*args, **kwargs)
 
     return wrapper(wrapped) if wrapped else wrapper
+
+
+def function_id(fn: Any) -> str:
+    """Get a unique identifier for a function.
+
+    Parameters
+    ----------
+    fn : Any
+        The function to get the identifier for.
+
+    Returns
+    -------
+    str
+        The unique identifier for the function.
+    """
+    if isinstance(fn, functools.partial):
+        base = fn.func
+    else:
+        base = fn
+    return f"{base.__module__}:{getattr(base, '__qualname__', type(base).__name__)}"
