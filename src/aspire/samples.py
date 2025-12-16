@@ -290,14 +290,6 @@ class BaseSamples:
             state["xp"] = (
                 self.xp.__name__ if hasattr(self.xp, "__name__") else None
             )
-        # ensure device is picklable (e.g., torch.device -> str)
-        if state.get("device") is not None:
-            device_str = str(state["device"])
-            # JAX devices are often host-specific; avoid persisting them
-            if "jax" in state.get("xp", ""):
-                state["device"] = None
-            else:
-                state["device"] = device_str
         return state
 
     def __setstate__(self, state):
