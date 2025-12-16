@@ -1,3 +1,4 @@
+import functools
 import pickle
 
 import array_api_compat.numpy as np_xp
@@ -6,7 +7,7 @@ import h5py
 import jax.numpy as jnp
 import pytest
 
-from aspire.utils import convert_dtype, dump_state, resolve_dtype
+from aspire.utils import convert_dtype, dump_state, function_id, resolve_dtype
 
 
 def _dtype_name(dtype):
@@ -85,3 +86,18 @@ def test_dump_state_round_trip(tmp_path):
         stored = fp["checkpoints"]["state"][...]
     restored = pickle.loads(stored.tobytes())
     assert restored == state
+
+
+# Define a simple function for testing
+def _foo(x):
+    return x
+
+
+@pytest.mark.parametrize(
+    "fn", [lambda x: x, functools.partial(lambda x, y: x, y=1), _foo]
+)
+def test_function_id(fn):
+    fn_id = function_id(fn)
+    assert isinstance(fn_id, str)
+    # Calling again should give the same result
+    assert fn_id == function_id(fn)
