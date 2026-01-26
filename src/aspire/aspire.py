@@ -354,6 +354,7 @@ class Aspire:
             xp=self.xp,
             dtype=self.dtype,
             preconditioning_transform=transform,
+            parameters=self.parameters,
             **kwargs,
         )
         return sampler
