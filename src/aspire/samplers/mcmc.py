@@ -13,14 +13,13 @@ class MCMCSampler(Sampler):
         n_samples_drawn = 0
         samples = None
         while n_samples_drawn < n_samples:
-            n_to_draw = n_samples - n_samples_drawn
-            x, log_q = self.prior_flow.sample_and_log_prob(n_to_draw)
+            x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
             new_samples = Samples(x, xp=self.xp, log_q=log_q, dtype=self.dtype)
             new_samples.log_prior = new_samples.array_to_namespace(
                 self.log_prior(new_samples)
             )
             valid = self.xp.isfinite(new_samples.log_prior)
-            n_valid = self.xp.sum(valid)
+            n_valid = int(self.xp.sum(valid))
             if n_valid > 0:
                 if samples is None:
                     samples = new_samples[valid]
