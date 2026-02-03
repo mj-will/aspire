@@ -47,6 +47,7 @@ emcee = [
 ]
 blackjax = [
     "blackjax",
+    "fastprogress<1.1.0",
 ]
 test = [
     "pytest",
