@@ -30,8 +30,9 @@ scipy = [
 ]
 jax = [
     "jax",
-    "jaxlib",
-    "flowjax"
+    "jaxlib<0.8.2; python_version < '3.12'",
+    "jaxlib; python_version >= '3.12'",
+    "flowjax",
 ]
 torch = [
     "torch",
@@ -47,6 +48,7 @@ emcee = [
 ]
 blackjax = [
     "blackjax",
+    "fastprogress<1.1.0",
 ]
 test = [
     "pytest",
