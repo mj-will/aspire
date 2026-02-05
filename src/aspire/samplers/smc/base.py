@@ -95,6 +95,7 @@ class SMCSampler(MCMCSampler):
         beta: float,
         beta_step: float,
         min_step: float,
+        beta_tolerance: float = 1e-6,
     ) -> tuple[float, float]:
         """Determine the next beta value.
 
@@ -108,6 +109,8 @@ class SMCSampler(MCMCSampler):
             The fixed beta step size if not adaptive.
         min_step : float
             The minimum beta step size.
+        beta_tolerance : float
+            Tolerance when checking for beta convergence.
 
         Returns
         -------
@@ -124,14 +127,13 @@ class SMCSampler(MCMCSampler):
             beta_prev = beta
             beta_min = beta_prev
             beta_max = 1.0
-            tol = 1e-5
             eff_beta_max = effective_sample_size(
                 samples.log_weights(beta_max)
             ) / len(samples)
             if eff_beta_max >= self.current_target_efficiency(beta_prev):
                 beta_min = 1.0
             target_eff = self.current_target_efficiency(beta_prev)
-            while beta_max - beta_min > tol:
+            while beta_max - beta_min > beta_tolerance:
                 beta_try = 0.5 * (beta_max + beta_min)
                 eff = effective_sample_size(
                     samples.log_weights(beta_try)
@@ -163,6 +165,7 @@ class SMCSampler(MCMCSampler):
         checkpoint_every: int | None = None,
         checkpoint_file_path: str | None = None,
         resume_from: str | bytes | dict | None = None,
+        beta_tolerance: float = 1e-6,
     ) -> SMCSamples:
         resumed = resume_from is not None
         if resumed:
@@ -249,6 +252,7 @@ class SMCSampler(MCMCSampler):
                     beta,
                     beta_step,
                     min_step,
+                    beta_tolerance=beta_tolerance,
                 )
                 self.history.eff_target.append(
                     self.current_target_efficiency(beta)
