@@ -165,6 +165,7 @@ class SMCSampler(MCMCSampler):
         checkpoint_every: int | None = None,
         checkpoint_file_path: str | None = None,
         resume_from: str | bytes | dict | None = None,
+        store_history: bool = True,
         beta_tolerance: float = 1e-6,
     ) -> SMCSamples:
         resumed = resume_from is not None
@@ -174,6 +175,7 @@ class SMCSampler(MCMCSampler):
             )
         else:
             samples = self.draw_initial_samples(n_samples)
+            print(samples.parameters)
             samples = SMCSamples.from_samples(
                 samples, xp=self.xp, beta=0.0, dtype=self.dtype
             )
@@ -181,6 +183,9 @@ class SMCSampler(MCMCSampler):
             iterations = 0
             self.history = SMCHistory()
         self.fit_preconditioning_transform(samples.x)
+
+        if store_history:
+            self.history.sample_history.append(samples)
 
         if self.xp.isnan(samples.log_q).any():
             raise ValueError("Log proposal contains NaN values")
@@ -288,6 +293,8 @@ class SMCSampler(MCMCSampler):
                 samples = samples.resample(beta, rng=self.rng)
 
                 samples = self.mutate(samples, beta)
+                if store_history:
+                    self.history.sample_history.append(samples)
                 maybe_checkpoint()
                 if beta == 1.0 or (
                     max_n_steps is not None and iterations >= max_n_steps

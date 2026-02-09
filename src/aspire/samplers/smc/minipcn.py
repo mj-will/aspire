@@ -89,7 +89,13 @@ class MiniPCNSMC(SMCSampler):
 
         self.history.mcmc_acceptance.append(np.mean(history.acceptance_rate))
 
-        samples = SMCSamples(x, xp=self.xp, beta=beta, dtype=self.dtype)
+        samples = SMCSamples(
+            x,
+            xp=self.xp,
+            beta=beta,
+            dtype=self.dtype,
+            parameters=self.parameters,
+        )
         samples.log_q = samples.array_to_namespace(
             self.prior_flow.log_prob(samples.x)
         )

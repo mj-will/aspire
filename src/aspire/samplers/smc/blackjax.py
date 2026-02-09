@@ -328,7 +328,13 @@ class BlackJAXSMC(SMCSampler):
         self.history.mcmc_acceptance.append(float(mean_acceptance))
 
         # Create new samples
-        samples = SMCSamples(x_final, xp=self.xp, beta=beta, dtype=self.dtype)
+        samples = SMCSamples(
+            x_final,
+            xp=self.xp,
+            beta=beta,
+            dtype=self.dtype,
+            parameters=self.parameters,
+        )
         samples.log_q = samples.array_to_namespace(
             self.prior_flow.log_prob(samples.x)
         )

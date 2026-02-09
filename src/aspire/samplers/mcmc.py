@@ -14,7 +14,13 @@ class MCMCSampler(Sampler):
         samples = None
         while n_samples_drawn < n_samples:
             x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
-            new_samples = Samples(x, xp=self.xp, log_q=log_q, dtype=self.dtype)
+            new_samples = Samples(
+                x,
+                xp=self.xp,
+                log_q=log_q,
+                dtype=self.dtype,
+                parameters=self.parameters,
+            )
             new_samples.log_prior = new_samples.array_to_namespace(
                 self.log_prior(new_samples)
             )
