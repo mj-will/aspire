@@ -469,11 +469,20 @@ class Samples(BaseSamples):
 
     def __getitem__(self, idx):
         sliced = super().__getitem__(idx)
-        return self.__class__.from_samples(
-            sliced,
-            log_evidence=self.log_evidence,
-            log_evidence_error=self.log_evidence_error,
-        )
+        sliced.log_evidence = self.log_evidence
+        sliced.log_evidence_error = self.log_evidence_error
+
+        if self.log_w is not None:
+            sliced.log_w = self.array_to_namespace(self.log_w[idx])
+            if self.weights is not None:
+                sliced.weights = self.array_to_namespace(self.weights[idx])
+            else:
+                sliced.weights = sliced.xp.exp(sliced.log_w)
+            log_w = sliced.log_w - sliced.xp.max(sliced.log_w)
+            sliced.effective_sample_size = sliced.xp.exp(
+                asarray(logsumexp(log_w) * 2 - logsumexp(log_w * 2), sliced.xp)
+            )
+        return sliced
 
 
 @dataclass
@@ -544,6 +553,7 @@ class SMCSamples(BaseSamples):
             log_q=self.log_q[idx],
             beta=beta,
             dtype=self.dtype,
+            parameters=self.parameters,
         )
 
     def __str__(self):
@@ -564,11 +574,29 @@ class SMCSamples(BaseSamples):
             log_evidence_error=self.log_evidence_error,
         )
 
+    def to_numpy(self):
+        return self.__class__(
+            x=to_numpy(self.x),
+            parameters=self.parameters,
+            log_likelihood=to_numpy(self.log_likelihood)
+            if self.log_likelihood is not None
+            else None,
+            log_prior=to_numpy(self.log_prior)
+            if self.log_prior is not None
+            else None,
+            log_q=to_numpy(self.log_q) if self.log_q is not None else None,
+            beta=self.beta,
+            log_evidence=self.log_evidence
+            if self.log_evidence is not None
+            else None,
+            log_evidence_error=self.log_evidence_error
+            if self.log_evidence_error is not None
+            else None,
+        )
+
     def __getitem__(self, idx):
         sliced = super().__getitem__(idx)
-        return self.__class__.from_samples(
-            sliced,
-            beta=self.beta,
-            log_evidence=self.log_evidence,
-            log_evidence_error=self.log_evidence_error,
-        )
+        sliced.beta = self.beta
+        sliced.log_evidence = self.log_evidence
+        sliced.log_evidence_error = self.log_evidence_error
+        return sliced
