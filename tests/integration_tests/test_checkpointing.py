@@ -29,7 +29,7 @@ def test_resume_from_file_smc(
             n_samples=20,
             sampler="smc",
             n_final_samples=25,
-            sampler_kwargs={"n_steps": 10},
+            sampler_kwargs={"n_steps": 10, "step_fn": "pcn"},
         )
 
     resumed = Aspire.resume_from_file(
@@ -74,7 +74,7 @@ def test_resume_from_file_manual_call(
             n_samples=20,
             sampler="smc",
             n_final_samples=25,
-            sampler_kwargs={"n_steps": 10},
+            sampler_kwargs={"n_steps": 10, "step_fn": "pcn"},
         )
 
     resumed = Aspire.resume_from_file(
