@@ -99,6 +99,10 @@ samples, history = aspire.sample_posterior(
 )
 # Plot SMC diagnostics
 history.plot().savefig(outdir / "smc_diagnostics.png")
+# Plot SMC sample history (e.g., log-likelihood of samples over iterations)
+history.plot_sample_history(x_axis="log_likelihood").savefig(
+    outdir / "smc_sample_history.png"
+)
 
 # Plot corner plot of the samples
 # Include initial samples and prior samples for comparison
