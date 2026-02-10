@@ -9,6 +9,20 @@ logger = logging.getLogger(__name__)
 
 
 class Flow:
+    """Base class for all flows.
+
+    Parameters
+    ----------
+    dims : int
+        The number of dimensions.
+    device : Any
+        The device to use for computations. Can be None for backends that do not
+        handle devices explicitly.
+    data_transform : BaseTransform, optional
+        A transform to apply to the data before fitting the flow. If None,
+        the identity transform is used.
+    """
+
     xp = None  # type: Any
 
     def __init__(
@@ -29,7 +43,7 @@ class Flow:
     def log_prob(self, x):
         raise NotImplementedError
 
-    def sample(self, x):
+    def sample(self, n_samples):
         raise NotImplementedError
 
     def sample_and_log_prob(self, n_samples):
