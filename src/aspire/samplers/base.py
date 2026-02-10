@@ -79,7 +79,7 @@ class Sampler:
         self.n_likelihood_evaluations += len(samples)
         return self._log_likelihood(samples)
 
-    def config_dict(self, include_sample_calls: bool = False) -> dict:
+    def config_dict(self, include_sample_calls: bool = True) -> dict:
         """
         Returns a dictionary with the configuration of the sampler.
 
@@ -87,14 +87,22 @@ class Sampler:
         ----------
         include_sample_calls : bool
             Whether to include the sample calls in the configuration.
-            Default is False.
+            Default is True. If True, and if the sampler has a sample method
+            with a calls attribute, the calls will be included in the config
+            under the key "sample_calls". If this fails for any reason, a
+            warning will be logged and the sample calls will be omitted.
         """
         config = {"sampler_class": self.__class__.__name__}
         if include_sample_calls:
             if hasattr(self, "sample") and hasattr(self.sample, "calls"):
-                config["sample_calls"] = self.sample.calls.to_dict(
-                    list_to_dict=True
-                )
+                try:
+                    config["sample_calls"] = self.sample.calls.to_dict(
+                        list_to_dict=True
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to include sample calls in config_dict: {e}"
+                    )
             else:
                 logger.warning(
                     "Sampler does not have a sample method with calls attribute."
@@ -122,7 +130,7 @@ class Sampler:
             "sampler": self.__class__.__name__,
             "iteration": iteration,
             "samples": checkpoint_samples,
-            "config": self.config_dict(include_sample_calls=False),
+            "config": self.config_dict(include_sample_calls=True),
             "parameters": self.parameters,
             "meta": meta or {},
         }
