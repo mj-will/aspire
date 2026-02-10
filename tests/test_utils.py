@@ -7,7 +7,13 @@ import h5py
 import jax.numpy as jnp
 import pytest
 
-from aspire.utils import convert_dtype, dump_state, function_id, resolve_dtype
+from aspire.utils import (
+    configure_logger,
+    convert_dtype,
+    dump_state,
+    function_id,
+    resolve_dtype,
+)
 
 
 def _dtype_name(dtype):
@@ -101,3 +107,22 @@ def test_function_id(fn):
     assert isinstance(fn_id, str)
     # Calling again should give the same result
     assert fn_id == function_id(fn)
+
+
+@pytest.mark.parametrize("log_file", [None, "test.log"])
+def test_configure_logger(tmp_path, caplog, log_file):
+    if log_file is not None:
+        log_file = tmp_path / log_file
+    logger = configure_logger(log_level="DEBUG", log_file=log_file)
+
+    with caplog.at_level("DEBUG"):
+        logger.debug("This is a debug message.")
+        logger.info("This is an info message.")
+    assert "This is a debug message." in caplog.text
+    assert "This is an info message." in caplog.text
+
+    if log_file is not None:
+        with open(log_file, "r") as f:
+            logs = f.read()
+        assert "This is a debug message." in logs
+        assert "This is an info message." in logs
