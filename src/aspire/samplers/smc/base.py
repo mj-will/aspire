@@ -165,9 +165,73 @@ class SMCSampler(MCMCSampler):
         checkpoint_every: int | None = None,
         checkpoint_file_path: str | None = None,
         resume_from: str | bytes | dict | None = None,
-        store_history: bool = True,
+        store_sample_history: bool = True,
         beta_tolerance: float = 1e-6,
     ) -> SMCSamples:
+        """Sample using the SMC sampler.
+
+        Parameters
+        ----------
+        n_samples : int
+            The number of samples (particles) to use in the SMC sampler.
+        n_steps : int, optional
+            The number of SMC iterations to perform. Must be specified if
+            :code:`adaptive=False`. Default is None.
+        adaptive : bool, optional
+            Whether to adaptively determine the beta schedule. Default is True.
+        min_step : float, optional
+            The minimum beta step size when using adaptive beta. Default is None,
+            which means no minimum step size.
+        max_n_steps : int, optional
+            The maximum number of SMC iterations to perform when using adaptive
+            beta. Default is None, which means no maximum.
+        target_efficiency : float or tuple, optional
+            The target sample efficiency (ESS / n_samples) to aim for at each
+            SMC iteration. Can be a single float in (0, 1) or a tuple of two
+            floats specifying a range to adapt between. Default is 0.5.
+        target_efficiency_rate : float, optional
+            When using a tuple for target_efficiency, this controls the rate at
+            which the target efficiency adapts from the first value to the
+            second value as beta increases. Default is 1.0 (linear adaptation).
+        n_final_samples : int, optional
+            If specified, the number of final samples to produce after the SMC
+            iterations. If not specified, the number of final samples will be
+            the same as n_samples. Default is None.
+        checkpoint_callback : callable, optional
+            A callback function to call with a checkpoint dictionary at regular
+            intervals during sampling. Default is None (no checkpointing).
+        checkpoint_every : int, optional
+            The number of iterations between checkpoints when using checkpoint
+            callback.
+            Default is None, which means no regular checkpointing.
+        checkpoint_file_path : str, optional
+            If using checkpoint_callback, this can be used to specify a file
+            path to save checkpoints to. Default is None.
+        resume_from : str, bytes, or dict, optional
+            If specified, this can be used to resume sampling from a previous
+            checkpoint. Can be a file path, bytes object, or checkpoint
+            dictionary. Default is None (start from scratch).
+        store_sample_history : bool, optional
+            Whether to store the history of samples at each iteration in
+            :code:`self.history.sample_history`. Default is True.
+        beta_tolerance : float, optional
+            Tolerance for determining convergence of beta when using adaptive
+            beta. Default is 1e-6.
+
+        Returns
+        -------
+        final_samples : SMCSamples
+            The final samples after running the SMC sampler, with log evidence
+            and log evidence error estimates.
+
+        Raises
+        ------
+        ValueError
+            If both n_steps is None and adaptive is False, or if
+            target_efficiency is not in (0, 1) when a float, or if
+            target_efficiency tuple is not valid, or if log probabilities
+            contain NaN values.
+        """
         resumed = resume_from is not None
         if resumed:
             samples, beta, iterations = self.restore_from_checkpoint(
@@ -183,7 +247,7 @@ class SMCSampler(MCMCSampler):
             self.history = SMCHistory()
         self.fit_preconditioning_transform(samples.x)
 
-        if store_history:
+        if store_sample_history:
             self.history.sample_history.append(samples)
 
         if self.xp.isnan(samples.log_q).any():
@@ -292,7 +356,7 @@ class SMCSampler(MCMCSampler):
                 samples = samples.resample(beta, rng=self.rng)
 
                 samples = self.mutate(samples, beta)
-                if store_history:
+                if store_sample_history:
                     self.history.sample_history.append(samples)
                 maybe_checkpoint()
                 if beta == 1.0 or (
