@@ -481,17 +481,6 @@ class Aspire:
             kwargs.setdefault("checkpoint_file_path", checkpoint_path)
             kwargs.setdefault("checkpoint_every", checkpoint_every)
             with AspireFile(checkpoint_path, "a") as h5_file:
-                if checkpoint_save_config:
-                    if "aspire_config" in h5_file:
-                        del h5_file["aspire_config"]
-                    self.save_config(
-                        h5_file,
-                        include_sampler_config=True,
-                        include_sample_calls=False,
-                    )
-                    saved_config = True
-                    if defaults is not None:
-                        defaults["saved_config"] = True
                 if (
                     self.flow is not None
                     and not saved_flow
@@ -521,7 +510,7 @@ class Aspire:
                     self.save_config(
                         h5_file,
                         include_sampler_config=True,
-                        include_sample_calls=False,
+                        include_sample_calls=True,
                     )
                     if defaults is not None:
                         defaults["saved_config"] = True
