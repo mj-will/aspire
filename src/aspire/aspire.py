@@ -229,6 +229,9 @@ class Aspire:
         if self.xp is None:
             self.xp = samples.xp
 
+        if self.parameters is None and samples.parameters is not None:
+            self.parameters = samples.parameters.copy()
+
         if self.flow is None:
             self.init_flow()
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
+from .samples import SMCSamples
 from .utils import recursively_save_to_h5_file
 
 
@@ -49,6 +50,7 @@ class SMCHistory(History):
     eff_target: list[float] = field(default_factory=list)
     mcmc_autocorr: list[float] = field(default_factory=list)
     mcmc_acceptance: list[float] = field(default_factory=list)
+    sample_history: list[SMCSamples] = field(default_factory=list)
 
     def save(self, h5_file, path="smc_history"):
         """Save the history to an HDF5 file."""
@@ -145,4 +147,187 @@ class SMCHistory(History):
         for ax in axs[:-1]:
             ax.set_xlabel("")
 
+        return fig
+
+    def plot_sample_history(
+        self,
+        n_samples=None,
+        parameters=None,
+        ax=None,
+        cmap: str = "viridis",
+        scatter_kwargs=None,
+        x_axis: str = "log_p_t",
+    ) -> Figure | None:
+        """Plot the history of samples in the SMC sampler.
+
+        Parameters
+        ----------
+        n_samples : int, optional
+            Number of samples to plot from each iteration. If None, plot all samples.
+        parameters : list of str, optional
+            List of parameter names to plot. If None, plot all parameters.
+        ax : matplotlib.axes.Axes, optional
+            Axes to plot on. If None, a new figure and axes will be created.
+        cmap : str, optional
+            Colormap to use for plotting the samples. Default is "viridis".
+        scatter_kwargs : dict, optional
+            Keyword arguments to pass to the scatter function. If None, no additional arguments will be passed
+        x_axis : str, optional
+            Quantity to use for the x-axis. Supported values are
+            :code:`"log_p_t"` and :code:`"log_likelihood"`.
+            Falls back to iteration index if required fields are missing.
+        """
+        import numpy as np
+
+        if x_axis not in {"log_p_t", "log_likelihood"}:
+            raise ValueError(
+                f"Unsupported x_axis '{x_axis}'. Expected 'log_p_t' or 'log_likelihood'."
+            )
+
+        n_parameters = (
+            len(parameters)
+            if parameters is not None
+            else self.sample_history[0].dims
+        )
+        if ax is None:
+            fig, ax = plt.subplots(n_parameters, 1, sharex=True)
+            ax = np.atleast_1d(ax)
+        else:
+            fig = None
+
+        cmap = plt.get_cmap(cmap)
+        colors = cmap(np.linspace(0, 1, len(self.sample_history)))
+
+        has_log_pt = all(
+            getattr(samples, "beta", None) is not None
+            and samples.log_likelihood is not None
+            and samples.log_prior is not None
+            and samples.log_q is not None
+            for samples in self.sample_history
+        )
+        has_log_likelihood = all(
+            samples.log_likelihood is not None
+            for samples in self.sample_history
+        )
+
+        scatter_kwargs = scatter_kwargs or {}
+
+        default_scatter_kwargs = dict(s=10)
+        scatter_kwargs = {**default_scatter_kwargs, **scatter_kwargs}
+
+        for it, samples, color in zip(
+            range(len(self.sample_history)), self.sample_history, colors
+        ):
+            samples = samples.to_numpy()
+            if n_samples is not None:
+                samples = samples[:n_samples]
+            if parameters is not None:
+                idx = [samples.parameters.index(p) for p in parameters]
+                x = samples.x[:, idx]
+            else:
+                x = samples.x
+            for i in range(x.shape[1]):
+                if x_axis == "log_p_t" and has_log_pt:
+                    x_axis_values = samples.log_p_t(samples.beta)
+                elif x_axis == "log_likelihood" and has_log_likelihood:
+                    x_axis_values = samples.log_likelihood
+                else:
+                    x_axis_values = it * np.ones(samples.x.shape[0])
+                ax[i].scatter(
+                    x_axis_values, x[:, i], color=color, **scatter_kwargs
+                )
+
+        parameters = parameters or samples.parameters
+        if parameters is None:
+            parameters = [f"x_{i}" for i in range(samples.x.shape[1])]
+        for i, p in enumerate(parameters):
+            ax[i].set_ylabel(p)
+
+        if x_axis == "log_p_t" and has_log_pt:
+            ax[-1].set_xlabel("log p_t(beta)")
+        elif x_axis == "log_likelihood" and has_log_likelihood:
+            ax[-1].set_xlabel("log likelihood")
+        else:
+            ax[-1].set_xlabel("Iteration")
+        return fig
+
+    def plot_quantile_bands(
+        self,
+        parameters: list[str] | None = None,
+        quantile_interval: tuple[float, float] = (0.1, 0.9),
+        ax=None,
+        line_kwargs=None,
+        band_kwargs=None,
+    ) -> Figure | None:
+        """Plot per-parameter quantile bands vs iteration.
+
+        Parameters
+        ----------
+        parameters : list[str] | None, optional
+            Parameters to plot. If None, all parameters are used.
+        quantile_interval : tuple[float, float], optional
+            Lower/upper quantiles to plot as a band.
+        ax : matplotlib.axes.Axes | list[matplotlib.axes.Axes] | None, optional
+            Axes to draw on. If None, creates a new figure.
+        line_kwargs : dict | None, optional
+            Keyword arguments for the median line.
+        band_kwargs : dict | None, optional
+            Keyword arguments for the quantile band fill.
+        """
+        import numpy as np
+
+        if not self.sample_history:
+            raise ValueError("No sample history available to plot.")
+
+        q_low, q_high = quantile_interval
+        if not (0.0 <= q_low < 0.5 and 0.5 < q_high <= 1.0 and q_low < q_high):
+            raise ValueError(
+                "quantile_interval must satisfy 0 <= low < 0.5 < high <= 1."
+            )
+
+        first = self.sample_history[0]
+        all_parameters = first.parameters or [
+            f"x_{i}" for i in range(first.dims)
+        ]
+        if parameters is None:
+            parameters = all_parameters
+
+        indices = [all_parameters.index(p) for p in parameters]
+        n_params = len(indices)
+
+        if ax is None:
+            fig, axs = plt.subplots(n_params, 1, sharex=True)
+            axs = np.atleast_1d(axs)
+        else:
+            fig = None
+            axs = np.atleast_1d(ax)
+            if len(axs) != n_params:
+                raise ValueError(
+                    "Number of axes must match number of requested parameters."
+                )
+
+        line_kwargs = {"color": "C0", "lw": 1.5, **(line_kwargs or {})}
+        band_kwargs = {"color": "C0", "alpha": 0.2, **(band_kwargs or {})}
+
+        iterations = np.arange(len(self.sample_history))
+        medians = np.empty((len(self.sample_history), n_params))
+        lowers = np.empty((len(self.sample_history), n_params))
+        uppers = np.empty((len(self.sample_history), n_params))
+
+        for it, samples in enumerate(self.sample_history):
+            x_np = samples.to_numpy().x
+            for j, idx in enumerate(indices):
+                values = x_np[:, idx]
+                medians[it, j] = np.quantile(values, 0.5)
+                lowers[it, j] = np.quantile(values, q_low)
+                uppers[it, j] = np.quantile(values, q_high)
+
+        for j, (axis, param) in enumerate(zip(axs, parameters)):
+            axis.plot(iterations, medians[:, j], **line_kwargs)
+            axis.fill_between(
+                iterations, lowers[:, j], uppers[:, j], **band_kwargs
+            )
+            axis.set_ylabel(param)
+
+        axs[-1].set_xlabel("Iteration")
         return fig
