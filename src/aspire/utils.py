@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 from io import BytesIO
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import array_api_compat.numpy as np
@@ -50,17 +51,20 @@ IS_NAMESPACE_FUNCTIONS = {
 
 def configure_logger(
     log_level: str | int = "INFO",
+    log_file: str | Path | None = None,
     additional_loggers: list[str] = None,
     include_aspire_loggers: bool = True,
 ) -> logging.Logger:
     """Configure the logger.
 
-    Adds a stream handler to the logger.
+    Adds a stream handler to the logger and optionally a file handler.
 
     Parameters
     ----------
     log_level : str or int, optional
         The log level to use. Defaults to "INFO".
+    log_file : str or Path, optional
+        The file to write logs to. If None, logs are not written to a file.
     additional_loggers : list of str, optional
         Additional loggers to configure. Defaults to None.
     include_aspire_loggers : bool, optional
@@ -81,6 +85,12 @@ def configure_logger(
     )
     ch.setFormatter(formatter)
     logger.addHandler(ch)
+
+    if log_file is not None:
+        fh = logging.FileHandler(log_file)
+        fh.setLevel(log_level)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
 
     additional_loggers = additional_loggers or []
     for name in logger.manager.loggerDict:
