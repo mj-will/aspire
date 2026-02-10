@@ -124,7 +124,6 @@ class FlowJax(Flow):
             dtype_value = self.dtype
         else:
             dtype_value = jnp.dtype(dtype_value)
-        print(dtype_value)
         config["dtype"] = encode_dtype(jnp, dtype_value)
 
         data_transform = config.pop("data_transform", None)

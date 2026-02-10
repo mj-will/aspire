@@ -175,7 +175,6 @@ class SMCSampler(MCMCSampler):
             )
         else:
             samples = self.draw_initial_samples(n_samples)
-            print(samples.parameters)
             samples = SMCSamples.from_samples(
                 samples, xp=self.xp, beta=0.0, dtype=self.dtype
             )
