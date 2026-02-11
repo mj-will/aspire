@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import copy
 import importlib
 import logging
 import math
-from dataclasses import dataclass, field
+from copy import deepcopy
+from dataclasses import dataclass, field, fields
 from typing import Any, Callable
 
 import numpy as np
@@ -144,16 +144,41 @@ class BaseSamples:
         x = safe_to_device(x, self.device, self.xp)
         return x
 
-    def to_dict(self, flat: bool = True):
+    def to_dict(self, flat: bool = True, copy: bool = True):
+        """Convert the samples to a dictionary.
+
+        Parameters
+        ----------
+        flat : bool
+            If True, the samples are stored as separate keys for each parameter.
+            If False, the samples are stored in a "samples" key as a dictionary
+            of parameter arrays.
+        copy : bool
+            If True, the arrays in the dictionary are deep-copied. If False, they
+            are not copied and may share memory with the original samples.
+
+        Returns
+        -------
+        dict
+            A dictionary representation of the samples.
+        """
+        out = {}
+        for f in fields(self):
+            name = f.name
+            if name in ["x", "xp"]:
+                continue
+            value = getattr(self, name)
+            if value is None:
+                out[name] = None
+            else:
+                # This could be improved
+                try:
+                    out[name] = deepcopy(value) if copy else value
+                except Exception:
+                    out[name] = value
+
+        out["xp"] = self.xp
         samples = dict(zip(self.parameters, self.x.T, strict=True))
-        out = {
-            "log_likelihood": self.log_likelihood,
-            "log_prior": self.log_prior,
-            "log_q": self.log_q,
-            "parameters": self.parameters,
-            "dtype": self.dtype,
-            "xp": self.xp,
-        }
         if flat:
             out.update(samples)
         else:
@@ -210,7 +235,7 @@ class BaseSamples:
         """
         import corner
 
-        kwargs = copy.deepcopy(kwargs)
+        kwargs = deepcopy(kwargs)
         kwargs.setdefault("labels", self.parameters)
 
         if parameters is not None:
@@ -228,9 +253,9 @@ class BaseSamples:
         )
         return out
 
-    def _encode_for_hdf5(self):
+    def _encode_for_hdf5(self, flat=True):
         """Encode the samples for storage in an HDF5 file."""
-        dictionary = self.to_numpy().to_dict(flat=True)
+        dictionary = self.to_numpy().to_dict(flat=flat)
         dictionary["dtype"] = encode_dtype(self.xp, self.dtype)
         dictionary["xp"] = self.xp.__name__
         return dictionary
@@ -250,7 +275,7 @@ class BaseSamples:
             If True, save the samples as a flat dictionary.
             If False, save the samples as a nested dictionary.
         """
-        dictionary = self._encode_for_hdf5()
+        dictionary = self._encode_for_hdf5(flat=flat)
         recursively_save_to_h5_file(h5_file, path, dictionary)
 
     @classmethod
@@ -442,27 +467,8 @@ class Samples(BaseSamples):
             dtype=self.dtype,
         )
 
-    def to_dict(self, flat: bool = True):
-        samples = dict(zip(self.parameters, self.x.T, strict=True))
-        out = super().to_dict(flat=flat)
-        other = {
-            "log_w": self.log_w,
-            "weights": self.weights,
-            "evidence": self.evidence,
-            "log_evidence": self.log_evidence,
-            "evidence_error": self.evidence_error,
-            "log_evidence_error": self.log_evidence_error,
-            "effective_sample_size": self.effective_sample_size,
-        }
-        out.update(other)
-        if flat:
-            out.update(samples)
-        else:
-            out["samples"] = samples
-        return out
-
     def plot_corner(self, include_weights: bool = True, **kwargs):
-        kwargs = copy.deepcopy(kwargs)
+        kwargs = deepcopy(kwargs)
         if (
             include_weights
             and self.weights is not None
