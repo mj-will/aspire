@@ -1045,7 +1045,7 @@ def enable_scipy_array_api() -> None:
         os.environ["SCIPY_ARRAY_API"] = "1"
     elif val != "1":
         warnings.warn(
-            f"SCIPY_ARRAY_API is set to '{val}', which may cause issues with "
+            f"SCIPY_ARRAY_API={val}, which may cause issues with "
             "array API compatibility. Consider setting it to '1' to enable "
             "array API support in SciPy.",
             RuntimeWarning,
