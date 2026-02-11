@@ -137,6 +137,7 @@ def test_basesamples_save_load(tmp_path, base_samples):
 @pytest.mark.parametrize("flat", [True, False])
 def test_basesamples_from_dict(base_samples, flat):
     d = base_samples.to_dict(flat=flat)
+    print(d)
     bs2 = BaseSamples.from_dict(d)
     assert isinstance(bs2, BaseSamples)
     assert bs2.parameters == base_samples.parameters
@@ -427,3 +428,21 @@ def test_str_contains_counts_and_metrics():
     assert "Log evidence:" in s_str
     assert "Effective sample size:" in s_str
     assert "Efficiency:" in s_str
+
+
+def test_smcsamples_to_dict_includes_smc_fields():
+    x, ll, lp, lq = make_simple_samples(n=4, d=2, a=0.5)
+    smc = SMCSamples(
+        x=x,
+        log_likelihood=ll,
+        log_prior=lp,
+        log_q=lq,
+        beta=0.3,
+        parameters=["a", "b"],
+        log_evidence=0.8,
+        log_evidence_error=0.1,
+    )
+    d = smc.to_dict(flat=True)
+    assert d["beta"] == 0.3
+    assert d["log_evidence"] == 0.8
+    assert d["log_evidence_error"] == 0.1

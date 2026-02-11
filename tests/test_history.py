@@ -35,6 +35,8 @@ def test_smc_history_save_load(tmp_path):
     assert isinstance(loaded_history.sample_history[0], SMCSamples)
     assert len(loaded_history.sample_history) == 1
     assert np.array_equal(loaded_history.sample_history[0].x, [[1, 2], [3, 4]])
+    assert loaded_history.sample_history[0].beta == 0.5
+    assert loaded_history.sample_history[0].parameters == ["x1", "x2"]
 
 
 @pytest.mark.parametrize("log_w", [None, np.array([-0.5, -1.0])])
