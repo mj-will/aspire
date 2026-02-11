@@ -1,7 +1,7 @@
-# test_samples.py
 import math
 import pickle
 
+import h5py
 import numpy as np
 import pytest
 
@@ -24,7 +24,11 @@ def make_simple_samples(n=5, d=2, a=1.234):
     return x, ll, lp, lq
 
 
-# -------- BaseSamples ---------------------------------------------------------
+@pytest.fixture
+def base_samples(xp):
+    x = np.arange(6.0).reshape(3, 2)
+    ll = np.array([0.1, 0.2, 0.3])
+    return BaseSamples(x=x, log_likelihood=ll, parameters=["a", "b"], xp=xp)
 
 
 def test_basesamples_defaults_and_dims_numpy_namespace():
@@ -44,17 +48,14 @@ def test_basesamples_defaults_and_dims_numpy_namespace():
     assert len(bs) == 3
 
 
-def test_basesamples_to_dict_flat_and_nested():
-    x = np.arange(6.0).reshape(3, 2)
-    ll = np.array([0.1, 0.2, 0.3])
-    bs = BaseSamples(x=x, log_likelihood=ll, parameters=["a", "b"])
-
+def test_basesamples_to_dict_flat_and_nested(base_samples):
+    bs = base_samples
     assert bs.log_likelihood.dtype == bs.dtype
 
     d_flat = bs.to_dict(flat=True)
     assert "a" in d_flat and "b" in d_flat
     assert "log_likelihood" in d_flat and np.allclose(
-        d_flat["log_likelihood"], ll
+        d_flat["log_likelihood"], bs.log_likelihood
     )
 
     d_nested = bs.to_dict(flat=False)
@@ -119,7 +120,28 @@ def test_basesamples_pickle_restores_namespace_and_fields():
     assert np.allclose(bs2.x, x)
 
 
-# -------- Samples -------------------------------------------------------------
+def test_basesamples_save_load(tmp_path, base_samples):
+    with h5py.File(tmp_path / "basesamples.pkl", "w") as f:
+        base_samples.save(f)
+
+    with h5py.File(tmp_path / "basesamples.pkl", "r") as f:
+        loaded_bs = BaseSamples.load(f)
+
+    assert loaded_bs.xp == base_samples.xp
+    assert isinstance(loaded_bs, BaseSamples)
+    assert loaded_bs.parameters == ["a", "b"]
+    assert np.allclose(loaded_bs.log_likelihood, base_samples.log_likelihood)
+    assert np.allclose(loaded_bs.x, base_samples.x)
+
+
+@pytest.mark.parametrize("flat", [True, False])
+def test_basesamples_from_dict(base_samples, flat):
+    d = base_samples.to_dict(flat=flat)
+    bs2 = BaseSamples.from_dict(d)
+    assert isinstance(bs2, BaseSamples)
+    assert bs2.parameters == base_samples.parameters
+    assert np.allclose(bs2.log_likelihood, base_samples.log_likelihood)
+    assert np.allclose(bs2.x, base_samples.x)
 
 
 def test_samples_compute_weights_constant_case():
