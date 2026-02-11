@@ -11,6 +11,7 @@ from array_api_compat import (
     array_namespace,
 )
 from array_api_compat.common._typing import Array
+from array_api_extra import default_dtype
 from matplotlib.figure import Figure
 
 from .utils import (
@@ -70,7 +71,7 @@ class BaseSamples:
             self.dtype = resolve_dtype(self.dtype, self.xp)
         else:
             # Fall back to default dtype for the array namespace
-            self.dtype = None
+            self.dtype = default_dtype(self.xp)
         self.x = self.array_to_namespace(self.x, dtype=self.dtype)
         if self.device is None:
             self.device = infer_device(self.x, self.xp)
