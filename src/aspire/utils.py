@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import importlib
 import inspect
 import logging
 import pickle
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from array_api_compat.common._typing import Array
 
     from .aspire import Aspire
+    from .samples import BaseSamples
 
 logger = logging.getLogger(__name__)
 
@@ -571,15 +573,75 @@ def decode_dtype(xp, encoded_dtype):
         return encoded_dtype
 
 
+def encode_samples(samples: BaseSamples) -> dict:
+    """Encode a BaseSamples object for storage in an HDF5 file.
+
+    Parameters
+    ----------
+    samples : BaseSamples
+        The samples to encode.
+
+    Returns
+    -------
+    dict
+        A dictionary containing the encoded samples. This includes a marker to
+        indicate that it is an encoded samples object, the type of the samples,
+        and the data needed to reconstruct the samples.
+    """
+    dictionary = samples._encode_for_hdf5()
+    return {
+        "__samples__": True,
+        "samples_type": type(samples).__name__,
+        "data": dictionary,
+    }
+
+
+def decode_samples(encoded_samples: dict) -> BaseSamples:
+    """Decode a BaseSamples object from a dictionary loaded from an HDF5 file.
+
+    Parameters
+    ----------
+    encoded_samples : dict
+        The dictionary containing the encoded samples. This should have been
+        produced by the :code:`encode_samples` function.
+
+    Raises
+    ------
+    ValueError
+        If the encoded_samples dictionary does not have the expected format or
+        if the samples type is unknown.
+    """
+    if isinstance(encoded_samples, dict) and encoded_samples.get(
+        "__samples__"
+    ):
+        samples_type = encoded_samples["samples_type"]
+        data = encoded_samples["data"]
+        # TODO: this could support user-defined samples
+        samples_module = importlib.import_module("aspire.samples")
+        SamplesClass = getattr(samples_module, samples_type, None)
+        if SamplesClass is None:
+            raise ValueError(
+                f"Unknown samples type '{samples_type}' in encoded data"
+            )
+        return SamplesClass._decode_from_dictionary(data)
+    else:
+        raise ValueError("Invalid encoded samples format")
+
+
 def encode_for_hdf5(value: Any) -> Any:
     """Encode a value for storage in an HDF5 file.
 
     Special cases:
     - None is replaced with "__none__"
     - Empty dictionaries are replaced with "__empty_dict__"
+    - BaseSamples objects are encoded using :code:`encode_samples`
     """
+    from .samples import BaseSamples
+
     if is_jax_array(value) or is_torch_array(value):
         return to_numpy(value)
+    if isinstance(value, BaseSamples):
+        value = encode_samples(value)
     if isinstance(value, CallHistory):
         return value.to_dict(list_to_dict=True)
     if isinstance(value, np.ndarray):
@@ -608,7 +670,6 @@ def decode_from_hdf5(value: Any) -> Any:
     """Decode a value loaded from an HDF5 file, reversing encode_for_hdf5."""
     if isinstance(value, bytes):  # HDF5 may store strings as bytes
         value = value.decode("utf-8")
-
     if isinstance(value, str):
         if value == "__none__":
             return None
@@ -620,7 +681,7 @@ def decode_from_hdf5(value: Any) -> Any:
         # Try to collapse 0-D arrays into scalars
         if value.shape == ():
             return value.item()
-        if value.dtype.kind in {"S", "O"}:
+        if value.dtype.kind in {"S", "O", "U"}:
             try:
                 return value.astype(str).tolist()
             except Exception:
@@ -635,16 +696,33 @@ def decode_from_hdf5(value: Any) -> Any:
     if isinstance(value, set):
         return {decode_from_hdf5(v) for v in value}
     if isinstance(value, dict):
-        return {
-            k.decode("utf-8"): decode_from_hdf5(v) for k, v in value.items()
-        }
+        if "__samples__" in value:
+            return decode_samples(value)
+        else:
+            return {
+                k.decode("utf-8"): decode_from_hdf5(v)
+                for k, v in value.items()
+            }
 
     # Fallback for ints, floats, strs, etc.
     return value
 
 
 def dump_pickle_to_hdf(memfp, fp, path=None, dsetname="state"):
-    """Dump pickled data to an HDF5 file object."""
+    """Dump pickled data to an HDF5 file object.
+
+    Parameters
+    ----------
+    memfp : BytesIO
+        A BytesIO object containing the pickled data.
+    fp : h5py.File
+        An open h5py.File object to write to.
+    path : str, optional
+        The group path within the HDF5 file to store the dataset. If None, the
+        dataset is stored at the root level. Defaults to None.
+    dsetname : str, optional
+        The name of the dataset to create or overwrite. Defaults to "state".
+    """
     memfp.seek(0)
     bdata = np.frombuffer(memfp.read(), dtype="S1")
     target = fp.require_group(path) if path is not None else fp
@@ -752,6 +830,12 @@ def recursively_save_to_h5_file(h5_file, path, dictionary):
                 try:
                     g.create_dataset(full_key, data=encode_for_hdf5(value))
                 except TypeError as error:
+                    logger.warning(
+                        f"Failed to save key {full_key} with value {value} to HDF5 file: {error}"
+                    )
+                    logger.warning(
+                        "Attempting to save as a string representation instead."
+                    )
                     try:
                         # Try saving as a string
                         dt = h5py.string_dtype(encoding="utf-8")

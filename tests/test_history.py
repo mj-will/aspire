@@ -1,9 +1,40 @@
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from aspire.history import SMCHistory
+from aspire.history import History, SMCHistory
 from aspire.samples import SMCSamples
+
+
+def test_history_save_load(tmp_path):
+    history = History()
+    history.stat = [1, 2, 3]
+    with h5py.File(tmp_path / "history.h5", "w") as f:
+        history.save(f, path="history")
+
+    with h5py.File(tmp_path / "history.h5", "r") as f:
+        loaded_history = History.load(f, path="history")
+
+    assert np.array_equal(loaded_history.stat, [1, 2, 3])
+
+
+def test_smc_history_save_load(tmp_path):
+    history = SMCHistory()
+    samples = SMCSamples(
+        x=np.array([[1, 2], [3, 4]]), beta=0.5, parameters=["x1", "x2"]
+    )
+    history.sample_history.append(samples)
+
+    with h5py.File(tmp_path / "smc_history.h5", "w") as f:
+        history.save(f, path="smc_history")
+
+    with h5py.File(tmp_path / "smc_history.h5", "r") as f:
+        loaded_history = SMCHistory.load(f, path="smc_history")
+
+    assert isinstance(loaded_history.sample_history[0], SMCSamples)
+    assert len(loaded_history.sample_history) == 1
+    assert np.array_equal(loaded_history.sample_history[0].x, [[1, 2], [3, 4]])
 
 
 @pytest.mark.parametrize("log_w", [None, np.array([-0.5, -1.0])])
@@ -33,6 +64,7 @@ def test_smc_history_samples(xp, log_w, parameters, n_samples):
         parameters=parameters, n_samples=n_samples
     )
     assert fig is not None
+    plt.close(fig)
 
 
 def test_smc_history_samples_x_axis_options():

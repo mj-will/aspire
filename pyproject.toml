@@ -18,6 +18,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "array-api-compat",
+    "array-api-extra",
     "wrapt",
     "h5py",
 ]

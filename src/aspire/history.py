@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 from .samples import SMCSamples
-from .utils import recursively_save_to_h5_file
+from .utils import load_from_h5_file, recursively_save_to_h5_file
 
 
 @dataclass
@@ -18,6 +18,34 @@ class History:
         """Save the history to an HDF5 file."""
         dictionary = copy.deepcopy(self.__dict__)
         recursively_save_to_h5_file(h5_file, path, dictionary)
+
+    @classmethod
+    def load(cls, h5_file, path="history"):
+        """Load the history from an HDF5 file.
+
+        Parameters
+        ----------
+        h5_file : h5py.File
+            The open HDF5 file to load from.
+        path : str, optional
+            The path within the HDF5 file to load the history from.
+            Default is "history".
+        """
+        dictionary = load_from_h5_file(h5_file, path)
+        # Dataclass may have fields not present in the init signature, so we
+        # filter the loaded dictionary to only include fields that are defined
+        # in the dataclass
+        field_names = {
+            field.name for field in cls.__dataclass_fields__.values()
+        }
+        filtered_dict = {
+            k: v for k, v in dictionary.items() if k in field_names
+        }
+        instance = cls(**filtered_dict)
+        for k, v in dictionary.items():
+            if k not in field_names:
+                setattr(instance, k, v)
+        return instance
 
 
 @dataclass
@@ -53,8 +81,67 @@ class SMCHistory(History):
     sample_history: list[SMCSamples] = field(default_factory=list)
 
     def save(self, h5_file, path="smc_history"):
-        """Save the history to an HDF5 file."""
-        super().save(h5_file, path=path)
+        """Save the history to an HDF5 file.
+
+        The sample history is saved as a separate group under the main history
+        group, with one subgroup per iteration. The number of iterations is
+        stored in the main history group to allow for loading the sample history
+        correctly.
+
+        Parameters
+        ----------
+        h5_file : h5py.File
+            The open HDF5 file to save to.
+        path : str, optional
+            The path within the HDF5 file to save the history. Default is
+            "smc_history".
+        """
+        dictionary = copy.deepcopy(self.__dict__)
+        sample_history = dictionary.pop("sample_history", [])
+        dictionary["__len_sample_history"] = len(sample_history)
+        recursively_save_to_h5_file(h5_file, path, dictionary)
+        for i, samples in enumerate(sample_history):
+            samples.save(h5_file, path=f"{path}__sample_history/{i}")
+
+    @classmethod
+    def load(cls, h5_file, path="smc_history"):
+        """Load the history from an HDF5 file.
+
+        Parameters
+        ----------
+        h5_file : h5py.File
+            The open HDF5 file to load from.
+        path : str, optional
+            The path within the HDF5 file to load the history from. Default is
+            "smc_history".
+
+        Returns
+        -------
+        SMCHistory
+            The loaded history instance.
+        """
+        dictionary = load_from_h5_file(h5_file, path)
+        n_samples = int(dictionary.pop("__len_sample_history", 0))
+        dictionary["sample_history"] = [
+            SMCSamples.load(h5_file, path=f"{path}__sample_history/{i}")
+            for i in range(n_samples)
+        ]
+        # Dataclass may have fields not present in the init signature, so we
+        # filter the loaded dictionary to only include fields that are defined
+        # in the dataclass
+        field_names = {
+            field.name for field in cls.__dataclass_fields__.values()
+        }
+        filtered_dict = {
+            k: v for k, v in dictionary.items() if k in field_names
+        }
+        instance = cls(**filtered_dict)
+        # Set any additional attributes that were not part of the dataclass
+        # fields
+        for k, v in dictionary.items():
+            if k not in field_names:
+                setattr(instance, k, v)
+        return instance
 
     def plot_beta(self, ax=None) -> Figure | None:
         if ax is None:
