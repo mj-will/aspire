@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import importlib
 import logging
 import math
 from dataclasses import dataclass, field
@@ -17,6 +18,8 @@ from matplotlib.figure import Figure
 from .utils import (
     asarray,
     convert_dtype,
+    decode_dtype,
+    encode_dtype,
     infer_device,
     logsumexp,
     recursively_save_to_h5_file,
@@ -147,12 +150,41 @@ class BaseSamples:
             "log_likelihood": self.log_likelihood,
             "log_prior": self.log_prior,
             "log_q": self.log_q,
+            "parameters": self.parameters,
+            "dtype": self.dtype,
+            "xp": self.xp,
         }
         if flat:
             out.update(samples)
         else:
             out["samples"] = samples
         return out
+
+    @classmethod
+    def from_dict(cls, dictionary):
+        """Load samples from a dictionary.
+
+        The dictionary can either be in a flat format, where the samples are
+        stored as separate keys for each parameter, or in a nested format, where
+        the samples are stored in a "samples" key as a dictionary of parameter.
+        """
+        dictionary = dictionary.copy()
+        if "samples" in dictionary:
+            samples = dictionary.pop("samples")
+            parameters = dictionary.pop("parameters")
+            if parameters is None:
+                parameters = sorted(samples.keys())
+            x = np.stack([samples[p] for p in parameters], axis=-1)
+        else:
+            parameters = dictionary.pop("parameters")
+            if parameters is None:
+                raise ValueError(
+                    "Parameters must be provided if samples are not nested in a 'samples' key"
+                )
+            x = np.stack([dictionary[p] for p in parameters], axis=-1)
+            for p in parameters:
+                dictionary.pop(p, None)
+        return cls(x=x, parameters=parameters, **dictionary)
 
     def to_dataframe(self, flat: bool = True):
         import pandas as pd
@@ -196,6 +228,13 @@ class BaseSamples:
         )
         return out
 
+    def _encode_for_hdf5(self):
+        """Encode the samples for storage in an HDF5 file."""
+        dictionary = self.to_numpy().to_dict(flat=True)
+        dictionary["dtype"] = encode_dtype(self.xp, self.dtype)
+        dictionary["xp"] = self.xp.__name__
+        return dictionary
+
     def save(self, h5_file, path="samples", flat=False):
         """Save the samples to an HDF5 file.
 
@@ -211,8 +250,25 @@ class BaseSamples:
             If True, save the samples as a flat dictionary.
             If False, save the samples as a nested dictionary.
         """
-        dictionary = self.to_numpy().to_dict(flat=flat)
+        dictionary = self._encode_for_hdf5()
         recursively_save_to_h5_file(h5_file, path, dictionary)
+
+    @classmethod
+    def _decode_from_dictionary(cls, dictionary):
+        """Decode the samples from a dictionary loaded from an HDF5 file."""
+        dictionary["xp"] = importlib.import_module(dictionary["xp"])
+        dictionary["dtype"] = decode_dtype(
+            dictionary["xp"], dictionary["dtype"]
+        )
+        return cls.from_dict(dictionary)
+
+    @classmethod
+    def load(cls, h5_file, path="samples"):
+        """Load the samples from an HDF5 file."""
+        from .utils import load_from_h5_file
+
+        dictionary = load_from_h5_file(h5_file, path)
+        return cls._decode_from_dictionary(dictionary)
 
     def __len__(self):
         return len(self.x)
