@@ -56,6 +56,9 @@ test = [
     "pytest-requires",
     "pytest-cov",
 ]
+corner = [
+    "corner",
+]
 
 [project.urls]
 Homepage = "https://github.com/mj-will/aspire"
