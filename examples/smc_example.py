@@ -15,7 +15,7 @@ import numpy as np
 from aspire import Aspire
 from aspire.plot import plot_comparison
 from aspire.samples import Samples
-from aspire.utils import configure_logger
+from aspire.utils import AspireFile, configure_logger
 
 # RNG for generating initial samples
 rng = np.random.default_rng(42)
@@ -88,21 +88,35 @@ fit_history = aspire.fit(initial_samples, n_epochs=30)
 fit_history.plot_loss().savefig(outdir / "loss.png")
 
 # Sample from the posterior using SMC
-samples, history = aspire.sample_posterior(
-    sampler="smc",  # Sequential Monte Carlo, this uses the default minipcn sampler
-    n_samples=500,  # Number of particles in SMC
-    n_final_samples=5000,  # Number of samples to draw from the final distribution
-    sampler_kwargs=dict(  # Keyword arguments for the specific sampler
-        n_steps=20,  # MCMC steps per SMC iteration
-    ),
-    return_history=True,  # To return the SMC history (e.g., ESS, betas)
-)
+# We enable checkpointing to demonstrate that functionality, but in practice
+# this may not be necessary for such a small example
+with aspire.auto_checkpoint(outdir / "aspire_smc_checkpoint.h5", every=1):
+    samples, history = aspire.sample_posterior(
+        sampler="smc",  # Sequential Monte Carlo, this uses the default minipcn sampler
+        n_samples=500,  # Number of particles in SMC
+        n_final_samples=5000,  # Number of samples to draw from the final distribution
+        sampler_kwargs=dict(  # Keyword arguments for the specific sampler
+            n_steps=20,  # MCMC steps per SMC iteration
+        ),
+        return_history=True,  # To return the SMC history (e.g., ESS, betas)
+    )
+
 # Plot SMC diagnostics
 history.plot().savefig(outdir / "smc_diagnostics.png")
 # Plot SMC sample history (e.g., log-likelihood of samples over iterations)
 history.plot_sample_history(x_axis="log_likelihood").savefig(
     outdir / "smc_sample_history.png"
 )
+
+# Save the results to a file
+# AspireFile is a small wrapper around h5py.File that automatically includes
+# additional metadata
+with AspireFile(outdir / "aspire_smc_results.h5", "w") as f:
+    aspire.save_config(f, "aspire_config")
+    samples.save(f, "posterior_samples")
+    history.save(f, "smc_history")
+    aspire.save_flow(f, "flow")
+    fit_history.save(f, "fit_history")
 
 # Plot corner plot of the samples
 # Include initial samples and prior samples for comparison
