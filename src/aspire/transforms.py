@@ -3,6 +3,7 @@ import logging
 import math
 from typing import Any, Callable
 
+import array_api_extra as xpx
 import h5py
 from array_api_compat import device as get_device
 from array_api_compat import is_torch_namespace
@@ -15,7 +16,6 @@ from .utils import (
     copy_array,
     logit,
     sigmoid,
-    update_at_indices,
 )
 
 logger = logging.getLogger(__name__)
@@ -253,19 +253,15 @@ class CompositeTransform(BaseTransform):
             logger.debug(
                 f"Fitting periodic transform to parameters: {self.periodic_parameters}"
             )
-            x = update_at_indices(
-                x,
-                (slice(None), self.periodic_mask),
-                self._periodic_transform.fit(x[:, self.periodic_mask]),
+            x = xpx.at(x, (slice(None), self.periodic_mask)).set(
+                self._periodic_transform.fit(x[:, self.periodic_mask])
             )
         if self.bounded_parameters:
             logger.debug(
                 f"Fitting bounded transform to parameters: {self.bounded_parameters}"
             )
-            x = update_at_indices(
-                x,
-                (slice(None), self.bounded_mask),
-                self._bounded_transform.fit(x[:, self.bounded_mask]),
+            x = xpx.at(x, (slice(None), self.bounded_mask)).set(
+                self._bounded_transform.fit(x[:, self.bounded_mask])
             )
         if self.affine_transform:
             logger.debug("Fitting affine transform to all parameters.")
@@ -280,14 +276,14 @@ class CompositeTransform(BaseTransform):
             y, log_j_periodic = self._periodic_transform.forward(
                 x[..., self.periodic_mask]
             )
-            x = update_at_indices(x, (slice(None), self.periodic_mask), y)
+            x = xpx.at(x, (slice(None), self.periodic_mask)).set(y)
             log_abs_det_jacobian += log_j_periodic
 
         if self.bounded_parameters:
             y, log_j_bounded = self._bounded_transform.forward(
                 x[..., self.bounded_mask]
             )
-            x = update_at_indices(x, (slice(None), self.bounded_mask), y)
+            x = xpx.at(x, (slice(None), self.bounded_mask)).set(y)
             log_abs_det_jacobian += log_j_bounded
 
         if self.affine_transform:
@@ -307,14 +303,14 @@ class CompositeTransform(BaseTransform):
             y, log_j_bounded = self._bounded_transform.inverse(
                 x[..., self.bounded_mask]
             )
-            x = update_at_indices(x, (slice(None), self.bounded_mask), y)
+            x = xpx.at(x, (slice(None), self.bounded_mask)).set(y)
             log_abs_det_jacobian += log_j_bounded
 
         if self.periodic_parameters:
             y, log_j_periodic = self._periodic_transform.inverse(
                 x[..., self.periodic_mask]
             )
-            x = update_at_indices(x, (slice(None), self.periodic_mask), y)
+            x = xpx.at(x, (slice(None), self.periodic_mask)).set(y)
             log_abs_det_jacobian += log_j_periodic
 
         return x, log_abs_det_jacobian
