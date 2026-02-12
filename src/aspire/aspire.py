@@ -510,7 +510,7 @@ class Aspire:
                     self.save_config(
                         h5_file,
                         include_sampler_config=True,
-                        include_sample_calls=True,
+                        include_sample_calls="last",
                     )
                     if defaults is not None:
                         defaults["saved_config"] = True
