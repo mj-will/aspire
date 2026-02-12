@@ -244,6 +244,7 @@ class SMCHistory(History):
         cmap: str = "viridis",
         scatter_kwargs=None,
         x_axis: str = "log_p_t",
+        iterations: list[int] | None = None,   # <-- new
     ) -> Figure | None:
         """Plot the history of samples in the SMC sampler.
 
@@ -283,7 +284,9 @@ class SMCHistory(History):
             fig = None
 
         cmap = plt.get_cmap(cmap)
-        colors = cmap(np.linspace(0, 1, len(self.sample_history)))
+        if iterations is None:
+            iterations = list(range(len(self.sample_history)))
+        colors = cmap(np.linspace(0, 1, len(iterations)))
 
         has_log_pt = all(
             getattr(samples, "beta", None) is not None
@@ -302,9 +305,8 @@ class SMCHistory(History):
         default_scatter_kwargs = dict(s=10)
         scatter_kwargs = {**default_scatter_kwargs, **scatter_kwargs}
 
-        for it, samples, color in zip(
-            range(len(self.sample_history)), self.sample_history, colors
-        ):
+        for it, color in zip(iterations, colors):
+            samples = self.sample_history[it]
             samples = samples.to_numpy()
             if n_samples is not None:
                 samples = samples[:n_samples]
