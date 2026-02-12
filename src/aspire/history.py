@@ -244,7 +244,7 @@ class SMCHistory(History):
         cmap: str = "viridis",
         scatter_kwargs=None,
         x_axis: str = "log_p_t",
-        iterations: list[int] | None = None,   # <-- new
+        iterations: list[int] | None = None,
     ) -> Figure | None:
         """Plot the history of samples in the SMC sampler.
 
