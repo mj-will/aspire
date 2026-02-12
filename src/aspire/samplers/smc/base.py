@@ -386,6 +386,20 @@ class SMCSampler(MCMCSampler):
         )
         return final_samples
 
+    def config_dict(self, include_sample_calls: str | bool = "last") -> dict:
+        dictionary = super().config_dict(include_sample_calls)
+        # Remove resume_from from the config dict if present, since it may not
+        # be serializable and is not needed to reconstruct the sampler
+        if "sample_calls" in dictionary:
+            if include_sample_calls == "last":
+                dictionary["sample_calls"]["kwargs"].pop("resume_from", None)
+            else:
+                for call_id in dictionary["sample_calls"].keys():
+                    dictionary["sample_calls"][call_id]["kwargs"].pop(
+                        "resume_from", None
+                    )
+        return dictionary
+
     def mutate(self, particles):
         raise NotImplementedError
 
