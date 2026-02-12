@@ -79,13 +79,16 @@ class Sampler:
         self.n_likelihood_evaluations += len(samples)
         return self._log_likelihood(samples)
 
-    def config_dict(self, include_sample_calls: bool = True) -> dict:
+    def config_dict(
+        self,
+        include_sample_calls: str | bool = "last",
+    ) -> dict:
         """
         Returns a dictionary with the configuration of the sampler.
 
         Parameters
         ----------
-        include_sample_calls : bool
+        include_sample_calls : bool | str, optional
             Whether to include the sample calls in the configuration.
             Default is True. If True, and if the sampler has a sample method
             with a calls attribute, the calls will be included in the config
@@ -93,8 +96,27 @@ class Sampler:
             warning will be logged and the sample calls will be omitted.
         """
         config = {"sampler_class": self.__class__.__name__}
-        if include_sample_calls:
-            if hasattr(self, "sample") and hasattr(self.sample, "calls"):
+        if include_sample_calls is not False:
+            if include_sample_calls is True:
+                include_sample_calls = "all"
+            if not isinstance(include_sample_calls, str):
+                raise ValueError(
+                    "include_sample_calls must be a string ('last' or 'all') or False."
+                    f"Received: {include_sample_calls} of type {type(include_sample_calls)}"
+                )
+
+            calls = getattr(self.sample, "calls", None)
+            if calls is None:
+                logger.warning(
+                    "Sampler does not have a sample method with calls attribute."
+                )
+                return config
+            if include_sample_calls.lower() == "last":
+                config["sample_calls"] = {
+                    "args": calls.args[-1] if calls.args else None,
+                    "kwargs": calls.kwargs[-1] if calls.kwargs else None,
+                }
+            elif include_sample_calls.lower() == "all":
                 try:
                     config["sample_calls"] = self.sample.calls.to_dict(
                         list_to_dict=True
@@ -104,9 +126,13 @@ class Sampler:
                         f"Failed to include sample calls in config_dict: {e}"
                     )
             else:
-                logger.warning(
-                    "Sampler does not have a sample method with calls attribute."
+                raise ValueError(
+                    "Invalid value for include_sample_calls. Must be 'last', 'all', or False."
                 )
+        else:
+            logger.debug(
+                "Not including sample calls in config_dict as include_sample_calls is False."
+            )
         return config
 
     # --- Checkpointing helpers shared across samplers ---
@@ -123,6 +149,7 @@ class Sampler:
         samples: Samples,
         iteration: int | None = None,
         meta: dict | None = None,
+        include_sample_calls: str | bool = "last",
     ) -> dict:
         """Prepare a serializable checkpoint payload for the sampler state."""
         checkpoint_samples = samples
@@ -130,7 +157,9 @@ class Sampler:
             "sampler": self.__class__.__name__,
             "iteration": iteration,
             "samples": checkpoint_samples,
-            "config": self.config_dict(include_sample_calls=True),
+            "config": self.config_dict(
+                include_sample_calls=include_sample_calls
+            ),
             "parameters": self.parameters,
             "meta": meta or {},
         }
