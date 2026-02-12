@@ -646,8 +646,13 @@ def encode_for_hdf5(value: Any) -> Any:
         return value.to_dict(list_to_dict=True)
     if isinstance(value, np.ndarray):
         return value
-    if isinstance(value, (int, float, str)):
+    if isinstance(value, Path):
+        value = str(value)
+    if isinstance(value, (int, float)):
         return value
+    if isinstance(value, str):
+        dt = h5py.string_dtype(encoding="utf-8")
+        return np.array(value, dtype=dt)
     if isinstance(value, (list, tuple)):
         if all(isinstance(v, str) for v in value):
             dt = h5py.string_dtype(encoding="utf-8")
@@ -662,7 +667,6 @@ def encode_for_hdf5(value: Any) -> Any:
             return {k: encode_for_hdf5(v) for k, v in value.items()}
     if value is None:
         return "__none__"
-
     return value
 
 
