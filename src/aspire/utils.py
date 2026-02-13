@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import array_api_compat.numpy as np
+import array_api_extra as xpx
 import h5py
 import wrapt
 from array_api_compat import (
@@ -935,11 +936,11 @@ def update_at_indices(x: Array, slc: Array, y: Array) -> Array:
     Array
         The updated array.
     """
-    try:
-        x[slc] = y
-        return x
-    except TypeError:
-        return x.at[slc].set(y)
+    warnings.warn(
+        "update_at_indices is deprecated and will be removed in a future version. Please use array-api-extra.at instead",
+        UserWarning,
+    )
+    return xpx.at(x, slc).set(y)
 
 
 @dataclass
