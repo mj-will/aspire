@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 from array_api_compat import is_torch_namespace
@@ -11,6 +13,11 @@ def enable_jax_float64():
         jax.config.update("jax_enable_x64", True)
     except ImportError:
         pass
+
+
+@pytest.fixture(autouse=True, scope="session")
+def enable_scipy_array_api():
+    os.environ["SCIPY_ARRAY_API"] = "1"
 
 
 @pytest.fixture

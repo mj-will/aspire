@@ -5,6 +5,7 @@ import importlib
 import inspect
 import logging
 import pickle
+import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
@@ -1026,3 +1027,26 @@ def function_id(fn: Any) -> str:
     else:
         base = fn
     return f"{base.__module__}:{getattr(base, '__qualname__', type(base).__name__)}"
+
+
+def enable_scipy_array_api() -> None:
+    """Set the environment variable to enable array API compatibility in SciPy.
+
+    Set :code:`SCIPY_ARRAY_API=1` if it is not already set.
+    """
+    import os
+
+    val = os.environ.get("SCIPY_ARRAY_API")
+    if val is None:
+        warnings.warn(
+            "SCIPY_ARRAY_API environment variable is not set. Setting it to '1'",
+            ImportWarning,
+        )
+        os.environ["SCIPY_ARRAY_API"] = "1"
+    elif val != "1":
+        warnings.warn(
+            f"SCIPY_ARRAY_API={val}, which may cause issues with "
+            "array API compatibility. Consider setting it to '1' to enable "
+            "array API support in SciPy.",
+            RuntimeWarning,
+        )

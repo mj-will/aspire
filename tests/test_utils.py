@@ -126,3 +126,37 @@ def test_configure_logger(tmp_path, caplog, log_file):
             logs = f.read()
         assert "This is a debug message." in logs
         assert "This is an info message." in logs
+
+
+def test_enable_scipy_array_api():
+    import os
+
+    from aspire.utils import enable_scipy_array_api
+
+    # Clear the environment variable if it exists
+    orig_val = os.environ.pop("SCIPY_ARRAY_API", None)
+
+    enable_scipy_array_api()
+    assert os.environ.get("SCIPY_ARRAY_API") == "1"
+    # Restore original environment variable
+    if orig_val is not None:
+        os.environ["SCIPY_ARRAY_API"] = orig_val
+
+
+def test_enable_scipy_array_api_respects_existing_setting():
+    import os
+
+    from aspire.utils import enable_scipy_array_api
+
+    orig_val = os.environ.get("SCIPY_ARRAY_API", None)
+    os.environ["SCIPY_ARRAY_API"] = "0"
+
+    # Catching warnings to verify that a warning is issued
+    with pytest.warns(RuntimeWarning, match="SCIPY_ARRAY_API=0"):
+        enable_scipy_array_api()
+    assert os.environ.get("SCIPY_ARRAY_API") == "0"
+    # Reset the environment variable for other tests
+    if orig_val is not None:
+        os.environ["SCIPY_ARRAY_API"] = orig_val
+    else:
+        os.environ.pop("SCIPY_ARRAY_API", None)
