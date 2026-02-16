@@ -59,6 +59,9 @@ test = [
 corner = [
     "corner",
 ]
+pandas = [
+    "pandas",
+]
 
 [project.urls]
 Homepage = "https://github.com/mj-will/aspire"

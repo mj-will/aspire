@@ -145,6 +145,14 @@ def test_basesamples_from_dict(base_samples, flat):
     assert np.allclose(bs2.x, base_samples.x)
 
 
+def test_basesamples_to_dataframe_include(base_samples):
+    df = base_samples.to_dataframe(include=["log_likelihood"])
+    assert "log_likelihood" in df.columns
+    assert "log_prior" not in df.columns
+    assert "a" in df.columns and "b" in df.columns
+    assert len(df) == len(base_samples)
+
+
 def test_samples_compute_weights_constant_case():
     n, d = 10, 3
     a = 1.5
@@ -290,6 +298,18 @@ def test_samples_rejection_sample_accepts_proportionally():
     # Heaviest point should be present with high probability
     if len(rs) > 0:
         assert 0 in rs.x.squeeze().astype(int)
+
+
+def test_samples_to_dataframe():
+    x, ll, lp, lq = make_simple_samples(n=4, d=2, a=0.5)
+    s = Samples(
+        x=x, log_likelihood=ll, log_prior=lp, log_q=lq, parameters=["a", "b"]
+    )
+    df = s.to_dataframe()
+    assert "a" in df.columns and "b" in df.columns
+    assert "log_w" in df.columns
+    assert "log_likelihood" in df.columns
+    assert len(df) == 4
 
 
 def test_smc_unnormalized_and_normalized_log_weights_and_ratio():
@@ -446,3 +466,19 @@ def test_smcsamples_to_dict_includes_smc_fields():
     assert d["beta"] == 0.3
     assert d["log_evidence"] == 0.8
     assert d["log_evidence_error"] == 0.1
+
+
+def test_smc_samples_to_dataframe():
+    x, ll, lp, lq = make_simple_samples(n=3, d=2, a=0.4)
+    smc = SMCSamples(
+        x=x,
+        log_likelihood=ll,
+        log_prior=lp,
+        log_q=lq,
+        beta=0.2,
+        parameters=["a", "b"],
+    )
+    df = smc.to_dataframe()
+    assert "a" in df.columns and "b" in df.columns
+    assert "log_likelihood" in df.columns
+    assert len(df) == 3
