@@ -5,7 +5,7 @@ import logging
 import math
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 from array_api_compat import (
@@ -29,6 +29,9 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @dataclass
@@ -211,10 +214,41 @@ class BaseSamples:
                 dictionary.pop(p, None)
         return cls(x=x, parameters=parameters, **dictionary)
 
-    def to_dataframe(self, flat: bool = True):
+    def to_dataframe(self, include: list[str] | None = None) -> "pd.DataFrame":
+        """Convert the samples to a pandas DataFrame.
+
+        Only includes samples, log_likelihood, log_prior, and log_q by default,
+        since additional fields have varying shapes and may not be compatible
+        with a DataFrame format.
+
+        Parameters
+        ----------
+        include : list[str] | None
+            List of fields to include in the DataFrame. If None, includes x,
+            log_likelihood, log_prior, and log_q. x is always included
+            irrespective of the value of include.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame representation of the samples.
+        """
         import pandas as pd
 
-        return pd.DataFrame(self.to_dict(flat=flat))
+        data = {}
+
+        samples = dict(zip(self.parameters, self.x.T, strict=True))
+        data.update(samples)
+
+        if include is None:
+            include = ["log_likelihood", "log_prior", "log_q"]
+
+        for key in include:
+            if getattr(self, key) is not None:
+                data[key] = getattr(self, key)
+            else:
+                data[key] = np.full(len(self.x), np.nan)
+        return pd.DataFrame(data)
 
     def plot_corner(
         self,
@@ -529,6 +563,27 @@ class Samples(BaseSamples):
             if self.log_evidence_error is not None
             else None,
         )
+
+    def to_dataframe(self, include: list[str] | None = None) -> "pd.DataFrame":
+        """Convert the samples to a pandas DataFrame.
+
+        By default, includes log_likelihood, log_prior, log_q, and log_w.
+        See parent class for more details.
+
+        Parameters
+        ----------
+        include : list[str] | None
+            List of fields to include in the DataFrame. If None, includes
+            log_likelihood, log_prior, log_q, and log_w.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame representation of the samples.
+        """
+        if include is None:
+            include = ["log_likelihood", "log_prior", "log_q", "log_w"]
+        return super().to_dataframe(include)
 
     def __getitem__(self, idx):
         sliced = super().__getitem__(idx)
