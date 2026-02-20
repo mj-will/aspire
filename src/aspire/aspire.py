@@ -278,6 +278,8 @@ class Aspire:
             from .samplers.smc.emcee import EmceeSMC as SamplerClass
         elif sampler_type == "minipcn":
             from .samplers.mcmc import MiniPCN as SamplerClass
+        elif sampler_type == "ptemcee":
+            from .samplers.mcmc import Ptemcee as SamplerClass
         elif sampler_type in ["smc", "minipcn_smc"]:
             from .samplers.smc.minipcn import MiniPCNSMC as SamplerClass
         elif sampler_type == "blackjax_smc":
