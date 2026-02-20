@@ -1,11 +1,37 @@
+import math
+
 import numpy as np
 
-from ..samples import Samples, to_numpy
+from ..samples import MCMCSamples, PTMCMCSamples, Samples, to_numpy
 from ..utils import track_calls
 from .base import Sampler
 
 
 class MCMCSampler(Sampler):
+    def __init__(
+        self,
+        log_likelihood,
+        log_prior,
+        dims,
+        prior_flow,
+        xp,
+        dtype=None,
+        parameters=None,
+        preconditioning_transform=None,
+        rng=None,
+    ):
+        super().__init__(
+            log_likelihood,
+            log_prior,
+            dims,
+            prior_flow,
+            xp,
+            dtype,
+            parameters,
+            preconditioning_transform,
+        )
+        self.rng = rng or np.random.default_rng()
+
     def draw_initial_samples(self, n_samples: int) -> Samples:
         """Draw initial samples from the prior flow."""
         # Flow may propose samples outside prior bounds, so we may need
@@ -81,7 +107,7 @@ class Emcee(MCMCSampler):
             vectorize=True,
         )
 
-        rng = rng or np.random.default_rng()
+        rng = rng or self.rng or np.random.default_rng()
 
         samples = self.draw_initial_samples(nwalkers)
         p0 = samples.x
@@ -90,29 +116,19 @@ class Emcee(MCMCSampler):
 
         self.sampler.run_mcmc(z0, nsteps, **kwargs)
 
-        z = self.sampler.get_chain(flat=True, discard=discard)
-        x = self.preconditioning_transform.inverse(z)[0]
+        chain = self.sampler.get_chain(discard=discard)
 
-        x_evidence, log_q = self.prior_flow.sample_and_log_prob(n_samples)
-        samples_evidence = Samples(x_evidence, log_q=log_q, xp=self.xp)
-        samples_evidence.log_prior = self.log_prior(samples_evidence)
-        samples_evidence.log_likelihood = self.log_likelihood(samples_evidence)
-        samples_evidence.compute_weights()
-
-        samples_mcmc = Samples(
-            x, xp=self.xp, parameters=self.parameters, dtype=self.dtype
-        )
-        samples_mcmc.log_prior = samples_mcmc.array_to_namespace(
-            self.log_prior(samples_mcmc)
-        )
-        samples_mcmc.log_likelihood = samples_mcmc.array_to_namespace(
-            self.log_likelihood(samples_mcmc)
-        )
-        samples_mcmc.log_evidence = samples_mcmc.array_to_namespace(
-            samples_evidence.log_evidence
-        )
-        samples_mcmc.log_evidence_error = samples_mcmc.array_to_namespace(
-            samples_evidence.log_evidence_error
+        # Transform chain back to original space
+        chain_z = chain.reshape(-1, self.dims)
+        chain_x, log_jacobian = self.preconditioning_transform.inverse(chain_z)
+        chain_x = chain_x.reshape(chain.shape)
+        # Create MCMCSamples
+        samples_mcmc = MCMCSamples.from_chain(
+            chain=chain_x,
+            parameters=self.parameters,
+            xp=self.xp,
+            dtype=self.dtype,
+            burn_in=discard,
         )
 
         return samples_mcmc
@@ -133,7 +149,7 @@ class MiniPCN(MCMCSampler):
     ):
         from minipcn import Sampler
 
-        rng = rng or np.random.default_rng()
+        rng = rng or self.rng or np.random.default_rng()
         p0 = self.draw_initial_samples(n_samples).x
 
         z0 = to_numpy(self.preconditioning_transform.fit(p0))
@@ -150,16 +166,140 @@ class MiniPCN(MCMCSampler):
 
         if last_step_only:
             z = chain[-1]
+            x = self.preconditioning_transform.inverse(z)[0]
+            samples_mcmc = Samples(x, xp=self.xp, parameters=self.parameters)
+            samples_mcmc.log_prior = samples_mcmc.array_to_namespace(
+                self.log_prior(samples_mcmc)
+            )
+            samples_mcmc.log_likelihood = samples_mcmc.array_to_namespace(
+                self.log_likelihood(samples_mcmc)
+            )
         else:
-            z = chain[burnin::thin].reshape(-1, self.dims)
+            # Apply burn-in and thinning
+            chain_thinned = chain[burnin::thin]
 
-        x = self.preconditioning_transform.inverse(z)[0]
+            # Transform chain back to original space
+            chain_z = chain_thinned.reshape(-1, self.dims)
+            chain_x, _ = self.preconditioning_transform.inverse(chain_z)
+            chain_x = chain_x.reshape(chain_thinned.shape)
 
-        samples_mcmc = Samples(x, xp=self.xp, parameters=self.parameters)
-        samples_mcmc.log_prior = samples_mcmc.array_to_namespace(
-            self.log_prior(samples_mcmc)
-        )
-        samples_mcmc.log_likelihood = samples_mcmc.array_to_namespace(
-            self.log_likelihood(samples_mcmc)
-        )
+            # Create MCMCSamples
+            samples_mcmc = MCMCSamples.from_chain(
+                chain=chain_x,
+                parameters=self.parameters,
+                xp=self.xp,
+                dtype=self.dtype,
+                thin=thin,
+                burn_in=burnin,
+            )
+
         return samples_mcmc
+
+
+class ParallelTemperedMCMCSampler(MCMCSampler):
+    """Wrapper for Parallel Tempered MCMC Samplers"""
+
+    def log_likelihood_wrapper(self, z):
+        """Wrapper for log-likelihood that takes array inputs."""
+        x, log_abs_det_jacobian = self.preconditioning_transform.inverse(z)
+        samples = Samples(x, xp=self.xp, dtype=self.dtype)
+        samples.log_prior = self.log_prior(samples)
+        samples.log_likelihood = self.log_likelihood(samples)
+        return to_numpy(samples.log_likelihood + log_abs_det_jacobian)
+
+    def log_prior_wrapper(self, z):
+        """Wrapper for log-prior that takes array inputs."""
+        x, _ = self.preconditioning_transform.inverse(z)
+        samples = Samples(x, xp=self.xp, dtype=self.dtype)
+        # Skip Jacobian to avoid double counting in log_prior and
+        # log_likelihood
+        return self.log_prior(samples)
+
+
+class Ptemcee(ParallelTemperedMCMCSampler):
+    def log_likelihood_wrapper(self, z):
+        if np.ndim(z) != 1:
+            raise ValueError("Input z must be a 1D array.")
+        return float(super().log_likelihood_wrapper(z))
+
+    def log_prior_wrapper(self, z):
+        if np.ndim(z) != 1:
+            raise ValueError("Input z must be a 1D array.")
+        return float(super().log_prior_wrapper(z))
+
+    @track_calls
+    def sample(
+        self,
+        n_samples: int,
+        nwalkers: int,
+        nsteps: int = 100,
+        ntemps: int = 5,
+        burnin: int = 0,
+        thin: int = 1,
+        Tmax: float | None = math.inf,
+        rng=None,
+        **kwargs,
+    ):
+        import ptemcee
+        import tqdm
+
+        rng = rng or self.rng or np.random.default_rng()
+
+        self.sampler = ptemcee.Sampler(
+            dim=self.dims,
+            logl=self.log_likelihood_wrapper,
+            logp=self.log_prior_wrapper,
+            nwalkers=nwalkers,
+            ntemps=ntemps,
+            Tmax=Tmax,
+            random=rng,
+            **kwargs,
+        )
+
+        p0 = self.draw_initial_samples(int(nwalkers * ntemps)).x
+        z0 = to_numpy(self.preconditioning_transform.fit(p0))
+
+        z0 = z0.reshape((ntemps, nwalkers, self.dims))
+
+        # Use tqgmbar for progress tracking if enabled
+        for _ in tqdm.tqdm(
+            self.sampler.sample(
+                p0=z0,
+                iterations=nsteps,
+                thin=thin,
+            ),
+            total=nsteps,
+            desc="Sampling with ptemcee",
+        ):
+            pass
+
+        # Chain has shape (ntemps, nwalkers, nsteps, dims)
+        chain_z = self.sampler.chain
+        # Transform all chains back to original space
+        chain_z_flat = chain_z.reshape(-1, self.dims)
+        chain_x_flat, _ = self.preconditioning_transform.inverse(chain_z_flat)
+        chain_x = chain_x_flat.reshape(chain_z.shape)
+
+        # PTMCMCSamples expects chain of shape (n_temps, steps, n_walkers, dims), so we need to
+        # reshape the chain to match this expectation
+        chain_x = np.transpose(chain_x, (0, 2, 1, 3))
+        logl_chain = np.transpose(self.sampler.loglikelihood, (0, 2, 1))
+
+        # Create PTMCMCSamples with full chain
+        samples_pt = PTMCMCSamples.from_chain(
+            chain=chain_x,
+            betas=self.sampler.betas,
+            log_likelihood=logl_chain,
+            parameters=self.parameters,
+            xp=self.xp,
+            dtype=self.dtype,
+            thin=thin,
+            burn_in=burnin,
+        )
+
+        samples_pt.log_prior = samples_pt.array_to_namespace(
+            self.log_prior(samples_pt)
+        )
+        samples_pt.autocorrelation_time = self.sampler.acor
+
+        return samples_pt
