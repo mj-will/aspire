@@ -49,7 +49,7 @@ class MiniPCNSMC(SMCSampler):
         self.sampler_kwargs.setdefault("step_fn", "tpcn")
         self.sampler_kwargs.setdefault("verbose", True)
         self.backend_str = determine_backend_name(xp=self.xp)
-        self.rng = rng or ArrayRNG(backend=self.backend_str)
+        self.rng = rng or self.rng or ArrayRNG(backend=self.backend_str)
         return super().sample(
             n_samples,
             n_steps=n_steps,
