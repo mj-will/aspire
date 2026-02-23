@@ -478,8 +478,17 @@ class Aspire:
             defaults.get("saved_config", False) if defaults else False
         )
         if checkpoint_path is not None:
-            kwargs.setdefault("checkpoint_file_path", checkpoint_path)
-            kwargs.setdefault("checkpoint_every", checkpoint_every)
+            # Check if sampler supports checkpointing
+            signatured_sample = signature(self._sampler.sample)
+            if not {"checkpoint_file_path", "checkpoint_every"}.issubset(
+                signatured_sample.parameters
+            ):
+                logger.warning(
+                    f"Sampler {sampler} does not support checkpointing. Checkpoint will not be saved."
+                )
+            else:
+                kwargs.setdefault("checkpoint_file_path", checkpoint_path)
+                kwargs.setdefault("checkpoint_every", checkpoint_every)
             with AspireFile(checkpoint_path, "a") as h5_file:
                 if checkpoint_save_config:
                     if "aspire_config" in h5_file:
