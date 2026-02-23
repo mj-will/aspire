@@ -278,14 +278,23 @@ class Aspire:
             from .samplers.smc.emcee import EmceeSMC as SamplerClass
         elif sampler_type == "minipcn":
             from .samplers.mcmc import MiniPCN as SamplerClass
-        elif sampler_type == "ptemcee":
-            from .samplers.mcmc import Ptemcee as SamplerClass
         elif sampler_type in ["smc", "minipcn_smc"]:
             from .samplers.smc.minipcn import MiniPCNSMC as SamplerClass
         elif sampler_type == "blackjax_smc":
             from .samplers.smc.blackjax import BlackJAXSMC as SamplerClass
         else:
-            raise ValueError(f"Unknown sampler type: {sampler_type}")
+            from importlib.metadata import entry_points
+
+            # Fetch any custom sampler registered via an entry point in the
+            # aspire.samplers group
+            entry_points_dict = {
+                ep.name: ep for ep in entry_points(group="aspire.samplers")
+            }
+
+            if sampler_type in entry_points_dict:
+                SamplerClass = entry_points_dict[sampler_type].load()
+            else:
+                raise ValueError(f"Unknown sampler type: {sampler_type}")
         return SamplerClass
 
     def init_sampler(
