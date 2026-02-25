@@ -427,13 +427,17 @@ def test_chain_samples_getitem_preserves_metadata(samples_cls, rng):
     out = samples[:4]
 
     assert isinstance(out, samples_cls)
-    assert out.chain_shape == (len(out.x),)
+    if samples_cls is MCMCSamples:
+        assert out.chain_shape == (len(out.x),)
+    else:
+        assert out.chain_shape == (chain.shape[0], 4, chain.shape[2])
     assert out.thin == samples.thin
     assert out.burn_in == samples.burn_in
     assert np.allclose(out.autocorrelation_time, samples.autocorrelation_time)
 
     if samples_cls is PTMCMCSamples:
         assert np.allclose(out.betas, samples.betas)
+        assert out.cold_chain().x.shape == (4 * chain.shape[2], dims)
 
 
 def test_ptmcmc_ti_matches_equations_35_to_37():
