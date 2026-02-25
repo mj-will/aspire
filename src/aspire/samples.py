@@ -1097,9 +1097,26 @@ class PTMCMCSamples(MCMCSamples):
         return fig
 
     def __getitem__(self, idx):
-        sliced = super().__getitem__(idx)
-        sliced.betas = self.betas
-        return sliced
+        chain = self.chain[:, idx, ...]
+        log_likelihood = self._reshape_like_chain(self.log_likelihood)
+        log_prior = self._reshape_like_chain(self.log_prior)
+        log_q = self._reshape_like_chain(self.log_q)
+        return self.__class__.from_chain(
+            chain=chain,
+            betas=self.betas,
+            log_likelihood=None
+            if log_likelihood is None
+            else log_likelihood[:, idx, ...],
+            log_prior=None if log_prior is None else log_prior[:, idx, ...],
+            log_q=None if log_q is None else log_q[:, idx, ...],
+            parameters=self.parameters,
+            xp=self.xp,
+            dtype=self.dtype,
+            device=self.device,
+            thin=self.thin,
+            burn_in=self.burn_in,
+            autocorrelation_time=self.autocorrelation_time,
+        )
 
 
 @dataclass
