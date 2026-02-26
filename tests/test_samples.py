@@ -351,6 +351,37 @@ def test_ptmcmc_samples_from_chain(rng):
 
 
 @pytest.mark.parametrize("samples_cls", [MCMCSamples, PTMCMCSamples])
+def test_chain_samples_save_load_preserves_chain_shape(
+    samples_cls, rng, tmp_path
+):
+    dims = 2
+    if samples_cls is MCMCSamples:
+        chain = rng.normal(size=(7, 3, dims))
+        kwargs = {}
+    else:
+        chain = rng.normal(size=(4, 7, 3, dims))
+        kwargs = {"betas": np.array([1.0, 0.5, 0.2, 0.0])}
+
+    samples = samples_cls.from_chain(
+        chain=chain,
+        thin=2,
+        burn_in=1,
+        autocorrelation_time=np.ones(chain.shape[0]),
+        **kwargs,
+    )
+
+    with h5py.File(tmp_path / "chain_samples.h5", "w") as f:
+        samples.save(f, path="samples")
+    with h5py.File(tmp_path / "chain_samples.h5", "r") as f:
+        loaded = samples_cls.load(f, path="samples")
+
+    assert tuple(loaded.chain_shape) == tuple(samples.chain_shape)
+    assert loaded.chain.shape == chain.shape
+    if samples_cls is PTMCMCSamples:
+        assert np.allclose(loaded.betas, samples.betas)
+
+
+@pytest.mark.parametrize("samples_cls", [MCMCSamples, PTMCMCSamples])
 def test_chain_samples_post_process_shared_behavior(samples_cls, rng):
     dims = 2
     if samples_cls is MCMCSamples:
