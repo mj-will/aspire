@@ -1,11 +1,23 @@
+from typing import Callable
+
 import numpy as np
 
 from ..samples import MCMCSamples, Samples, to_numpy
-from ..utils import track_calls
+from ..utils import AspireFile, track_calls
 from .base import Sampler
 
 
 class MCMCSampler(Sampler):
+    """Base class for MCMC samplers."""
+
+    chain_checkpoint_path = "checkpoint"
+    """Path within checkpoint file to save MCMC chain checkpoints.
+
+    The default is "checkpoint".
+    """
+    chain_dataset_name = "mcmc_chain"
+    """Name of chain entry within checkpoint file to save MCMC checkpoints."""
+
     def __init__(
         self,
         log_likelihood,
@@ -83,6 +95,71 @@ class MCMCSampler(Sampler):
         )
         return to_numpy(log_prob).flatten()
 
+    def default_mcmc_chain_file_checkpoint_callback(
+        self, file_path: str | None
+    ) -> Callable[[dict], None]:
+        """Return a callback that saves MCMC checkpoints as native HDF5 samples."""
+        if file_path is None:
+            return self.default_checkpoint_callback
+        callback = self.default_file_checkpoint_callback(file_path)
+        _ = callback  # validates extension and path early
+
+        def _mcmc_chain_callback(state: dict) -> None:
+            samples = state.get("samples")
+            if samples is None:
+                raise ValueError("Checkpoint missing samples.")
+            chain_path = (
+                f"{self.chain_checkpoint_path}/{self.chain_dataset_name}"
+            )
+            with AspireFile(file_path, "a") as h5_file:
+                if chain_path in h5_file:
+                    del h5_file[chain_path]
+                samples.save(h5_file, path=chain_path, flat=False)
+                group = h5_file[chain_path]
+                if (
+                    hasattr(samples, "chain_shape")
+                    and samples.chain_shape is not None
+                ):
+                    group.attrs["chain_shape"] = np.asarray(
+                        samples.chain_shape, dtype=int
+                    )
+                iteration = state.get("iteration")
+                if iteration is not None:
+                    group.attrs["iteration"] = int(iteration)
+                stage = state.get("meta", {}).get("stage")
+                if stage is not None:
+                    group.attrs["stage"] = str(stage)
+                sampler_name = state.get("sampler")
+                if sampler_name is not None:
+                    group.attrs["sampler"] = str(sampler_name)
+            self.default_checkpoint_callback(state)
+
+        return _mcmc_chain_callback
+
+    def checkpoint_mcmc_chain(
+        self,
+        samples: Samples,
+        iteration: int | None = None,
+        checkpoint_callback: Callable[[dict], None] | None = None,
+        checkpoint_every: int | None = None,
+        checkpoint_file_path: str | None = None,
+    ) -> None:
+        """Save an MCMC chain checkpoint."""
+        if checkpoint_every is not None and checkpoint_every <= 0:
+            return
+        if checkpoint_callback is None and checkpoint_file_path is not None:
+            checkpoint_callback = (
+                self.default_mcmc_chain_file_checkpoint_callback(
+                    checkpoint_file_path
+                )
+            )
+        if checkpoint_callback is None:
+            return
+        state = self.build_checkpoint_state(
+            samples=samples, iteration=iteration, meta={"stage": "mcmc_chain"}
+        )
+        checkpoint_callback(state)
+
 
 class Emcee(MCMCSampler):
     @track_calls
@@ -93,6 +170,9 @@ class Emcee(MCMCSampler):
         nsteps: int = 500,
         rng=None,
         discard=0,
+        checkpoint_callback: Callable[[dict], None] | None = None,
+        checkpoint_every: int | None = None,
+        checkpoint_file_path: str | None = None,
         **kwargs,
     ) -> Samples:
         from emcee import EnsembleSampler
@@ -128,6 +208,13 @@ class Emcee(MCMCSampler):
             dtype=self.dtype,
             burn_in=discard,
         )
+        self.checkpoint_mcmc_chain(
+            samples=samples_mcmc,
+            iteration=nsteps,
+            checkpoint_callback=checkpoint_callback,
+            checkpoint_every=checkpoint_every,
+            checkpoint_file_path=checkpoint_file_path,
+        )
 
         return samples_mcmc
 
@@ -144,6 +231,9 @@ class MiniPCN(MCMCSampler):
         burnin=0,
         last_step_only=False,
         step_fn="tpcn",
+        checkpoint_callback: Callable[[dict], None] | None = None,
+        checkpoint_every: int | None = None,
+        checkpoint_file_path: str | None = None,
     ):
         from minipcn import Sampler
 
@@ -161,11 +251,34 @@ class MiniPCN(MCMCSampler):
         )
 
         chain, history = self.sampler.sample(z0, n_steps=n_steps)
+        _ = history
+
+        # Transform the full chain back to original space once so checkpoints
+        # always capture pre-burn/pre-thin samples.
+        chain_z_full = chain.reshape(-1, self.dims)
+        chain_x_full, _ = self.preconditioning_transform.inverse(chain_z_full)
+        chain_x_full = chain_x_full.reshape(chain.shape)
+        full_chain_samples = MCMCSamples.from_chain(
+            chain=chain_x_full,
+            parameters=self.parameters,
+            xp=self.xp,
+            dtype=self.dtype,
+            thin=1,
+            burn_in=0,
+        )
+        self.checkpoint_mcmc_chain(
+            samples=full_chain_samples,
+            iteration=n_steps,
+            checkpoint_callback=checkpoint_callback,
+            checkpoint_every=checkpoint_every,
+            checkpoint_file_path=checkpoint_file_path,
+        )
 
         if last_step_only:
-            z = chain[-1]
-            x = self.preconditioning_transform.inverse(z)[0]
-            samples_mcmc = Samples(x, xp=self.xp, parameters=self.parameters)
+            x = chain_x_full[-1]
+            samples_mcmc = Samples(
+                x, xp=self.xp, dtype=self.dtype, parameters=self.parameters
+            )
             samples_mcmc.log_prior = samples_mcmc.array_to_namespace(
                 self.log_prior(samples_mcmc)
             )
@@ -173,22 +286,9 @@ class MiniPCN(MCMCSampler):
                 self.log_likelihood(samples_mcmc)
             )
         else:
-            # Apply burn-in and thinning
-            chain_thinned = chain[burnin::thin]
-
-            # Transform chain back to original space
-            chain_z = chain_thinned.reshape(-1, self.dims)
-            chain_x, _ = self.preconditioning_transform.inverse(chain_z)
-            chain_x = chain_x.reshape(chain_thinned.shape)
-
-            # Create MCMCSamples
-            samples_mcmc = MCMCSamples.from_chain(
-                chain=chain_x,
-                parameters=self.parameters,
-                xp=self.xp,
-                dtype=self.dtype,
-                thin=thin,
-                burn_in=burnin,
+            # Apply burn-in and thinning to the full chain for returned samples.
+            samples_mcmc = full_chain_samples.post_process(
+                burn_in=burnin, thin=thin
             )
 
         return samples_mcmc
