@@ -787,6 +787,32 @@ class MCMCSamples(BaseSamples):
         sliced.autocorrelation_time = self.autocorrelation_time
         return sliced
 
+    def _to_numpy_constructor_kwargs(self) -> dict[str, Any]:
+        return {}
+
+    def to_numpy(self):
+        chain_shape = None
+        if self.chain_shape is not None:
+            chain_shape = tuple(int(v) for v in np.asarray(self.chain_shape))
+        return self.__class__(
+            x=to_numpy(self.x),
+            parameters=self.parameters,
+            log_likelihood=to_numpy(self.log_likelihood)
+            if self.log_likelihood is not None
+            else None,
+            log_prior=to_numpy(self.log_prior)
+            if self.log_prior is not None
+            else None,
+            log_q=to_numpy(self.log_q) if self.log_q is not None else None,
+            chain_shape=chain_shape,
+            thin=self.thin,
+            burn_in=self.burn_in,
+            autocorrelation_time=to_numpy(self.autocorrelation_time)
+            if self.autocorrelation_time is not None
+            else None,
+            **self._to_numpy_constructor_kwargs(),
+        )
+
 
 @dataclass
 class PTMCMCSamples(MCMCSamples):
@@ -907,6 +933,11 @@ class PTMCMCSamples(MCMCSamples):
 
     def cold_chain(self) -> MCMCSamples:
         return self.at_temperature(0)
+
+    def _to_numpy_constructor_kwargs(self) -> dict[str, Any]:
+        return {
+            "betas": to_numpy(self.betas) if self.betas is not None else None
+        }
 
     def log_evidence_thermodynamic_integration(
         self, burn_in_fraction: float | None = 0.1, method: str = "variance"
