@@ -95,6 +95,7 @@ class SMCSampler(MCMCSampler):
         beta: float,
         beta_step: float,
         min_step: float,
+        max_step: float = 1.0,
         beta_tolerance: float = 1e-6,
     ) -> tuple[float, float]:
         """Determine the next beta value.
@@ -109,6 +110,8 @@ class SMCSampler(MCMCSampler):
             The fixed beta step size if not adaptive.
         min_step : float
             The minimum beta step size.
+        max_step : float
+            The maximum beta step size.
         beta_tolerance : float
             Tolerance when checking for beta convergence.
 
@@ -147,7 +150,7 @@ class SMCSampler(MCMCSampler):
             if self.adaptive_min_step:
                 min_step = min_step * (1 - beta_prev) / (1 - beta_star)
             beta = max(beta_star, beta_prev + min_step)
-            beta = min(beta, 1.0)
+            beta = min(beta, max_step, 1.0)
         return beta, min_step
 
     @track_calls
@@ -157,6 +160,7 @@ class SMCSampler(MCMCSampler):
         n_steps: int | None = None,
         adaptive: bool = True,
         min_step: float | None = None,
+        max_step: float | None = None,
         max_n_steps: int | None = None,
         target_efficiency: float = 0.5,
         target_efficiency_rate: float = 1.0,
@@ -284,6 +288,12 @@ class SMCSampler(MCMCSampler):
         else:
             self.adaptive_min_step = False
 
+        if max_step is not None:
+            if max_step <= 0 or max_step >= 1:
+                raise ValueError("max_step must be in (0, 1)")
+            self.max_step = max_step
+        else:
+            self.max_step = 1.0
         iterations = iterations or 0
         if checkpoint_callback is None and checkpoint_every is not None:
             checkpoint_callback = self.default_file_checkpoint_callback(
@@ -320,6 +330,7 @@ class SMCSampler(MCMCSampler):
                     beta,
                     beta_step,
                     min_step,
+                    max_step=self.max_step,
                     beta_tolerance=beta_tolerance,
                 )
                 self.history.eff_target.append(
