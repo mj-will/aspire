@@ -647,6 +647,8 @@ def encode_for_hdf5(value: Any) -> Any:
         return value.to_dict(list_to_dict=True)
     if isinstance(value, np.ndarray):
         return value
+    if isinstance(value, Path):
+        value = str(value)
     if isinstance(value, (int, float, str)):
         return value
     if isinstance(value, (list, tuple)):
@@ -663,7 +665,6 @@ def encode_for_hdf5(value: Any) -> Any:
             return {k: encode_for_hdf5(v) for k, v in value.items()}
     if value is None:
         return "__none__"
-
     return value
 
 
@@ -830,7 +831,7 @@ def recursively_save_to_h5_file(h5_file, path, dictionary):
             else:
                 try:
                     g.create_dataset(full_key, data=encode_for_hdf5(value))
-                except TypeError as error:
+                except (TypeError, ValueError) as error:
                     logger.warning(
                         f"Failed to save key {full_key} with value {value} to HDF5 file: {error}"
                     )
