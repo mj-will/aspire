@@ -791,7 +791,13 @@ class Aspire:
         if self.flow is None:
             self.init_flow()
         x, log_q = self.flow.sample_and_log_prob(n_samples)
-        samples = Samples(x=x, log_q=log_q, xp=xp, parameters=self.parameters)
+        samples = Samples(
+            x=x,
+            log_q=log_q,
+            xp=xp,
+            parameters=self.parameters,
+            dtype=self.dtype,
+        )
         return samples
 
     # --- Resume helpers ---
