@@ -1,4 +1,5 @@
 from functools import partial
+from typing import Any
 
 import numpy as np
 
@@ -16,7 +17,7 @@ class MiniPCNSMC(SMCSampler):
 
     rng = None
 
-    def log_prob(self, x, beta=None):
+    def log_prob(self, x: SMCSamples, beta: float | None = None) -> Any:
         return super().log_prob(x, beta)
 
     @track_calls
@@ -37,13 +38,14 @@ class MiniPCNSMC(SMCSampler):
         checkpoint_every: int | None = None,
         checkpoint_file_path: str | None = None,
         resume_from: str | bytes | dict | None = None,
-    ):
+    ) -> SMCSamples:
         from orng import ArrayRNG
 
         self.sampler_kwargs = sampler_kwargs or {}
         self.sampler_kwargs.setdefault("n_steps", 5 * self.dims)
         self.sampler_kwargs.setdefault("target_acceptance_rate", 0.234)
         self.sampler_kwargs.setdefault("step_fn", "tpcn")
+        self.sampler_kwargs.setdefault("verbose", True)
         self.backend_str = determine_backend_name(xp=self.xp)
         self.rng = rng or ArrayRNG(backend=self.backend_str)
         return super().sample(
@@ -62,20 +64,40 @@ class MiniPCNSMC(SMCSampler):
             resume_from=resume_from,
         )
 
-    def mutate(self, particles, beta, n_steps=None):
+    def mutate(
+        self, particles: SMCSamples, beta: float, n_steps: int | None = None
+    ) -> SMCSamples:
+        """Mutate particles using the MiniPCN sampler.
+
+        Parameters
+        ----------
+        particles : SMCSamples
+            The current particles to be mutated.
+        beta : float
+            The current inverse temperature.
+        n_steps : int, optional
+            The number of MCMC steps to take. If None, uses the default from
+            :code:`sampler_kwargs`.
+
+        Returns
+        -------
+        SMCSamples
+            The mutated particles.
+        """
         from minipcn import Sampler
 
         log_prob_fn = partial(self.log_prob, beta=beta)
 
+        kwargs = self.sampler_kwargs.copy()
+        n_steps = n_steps or kwargs.pop("n_steps")
+        verbose = kwargs.pop("verbose")
+
         sampler = Sampler(
             log_prob_fn=log_prob_fn,
-            step_fn=self.sampler_kwargs["step_fn"],
             rng=self.rng,
             dims=self.dims,
-            target_acceptance_rate=self.sampler_kwargs[
-                "target_acceptance_rate"
-            ],
             xp=self.xp,
+            **kwargs,
         )
         # Map to transformed dimension for sampling
         z = asarray(
@@ -86,6 +108,7 @@ class MiniPCNSMC(SMCSampler):
         chain, history = sampler.sample(
             z,
             n_steps=n_steps or self.sampler_kwargs["n_steps"],
+            verbose=verbose,
         )
         x = self.preconditioning_transform.inverse(chain[-1])[0]
 
