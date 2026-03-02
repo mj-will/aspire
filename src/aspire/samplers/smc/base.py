@@ -44,7 +44,7 @@ class SMCSampler(MCMCSampler):
             preconditioning_transform=preconditioning_transform,
         )
         self.rng = rng or np.random.default_rng()
-        self._adapative_target_efficiency = False
+        self._adaptive_target_efficiency = False
 
     @property
     def target_efficiency(self):
@@ -66,7 +66,7 @@ class SMCSampler(MCMCSampler):
             if not (0 < value < 1):
                 raise ValueError("target_efficiency must be in (0, 1)")
             self._target_efficiency = value
-            self._adapative_target_efficiency = False
+            self._adaptive_target_efficiency = False
         elif len(value) != 2:
             raise ValueError(
                 "target_efficiency must be a float or tuple of two floats"
@@ -78,11 +78,11 @@ class SMCSampler(MCMCSampler):
                     "target_efficiency tuple must be in (0, 1) and increasing"
                 )
             self._target_efficiency = value
-            self._adapative_target_efficiency = True
+            self._adaptive_target_efficiency = True
 
     def current_target_efficiency(self, beta: float) -> float:
         """Get the current target efficiency based on beta."""
-        if self._adapative_target_efficiency:
+        if self._adaptive_target_efficiency:
             return self._target_efficiency[0] + (
                 self._target_efficiency[1] - self._target_efficiency[0]
             ) * (beta**self.target_efficiency_rate)
@@ -94,7 +94,8 @@ class SMCSampler(MCMCSampler):
         samples: SMCSamples,
         beta: float,
         beta_step: float,
-        min_step: float,
+        min_beta_step: float,
+        max_beta_step: float = 1.0,
         beta_tolerance: float = 1e-6,
     ) -> tuple[float, float]:
         """Determine the next beta value.
@@ -107,8 +108,10 @@ class SMCSampler(MCMCSampler):
             The current beta value.
         beta_step : float
             The fixed beta step size if not adaptive.
-        min_step : float
+        min_beta_step : float
             The minimum beta step size.
+        max_beta_step : float
+            The maximum beta step size.
         beta_tolerance : float
             Tolerance when checking for beta convergence.
 
@@ -116,8 +119,8 @@ class SMCSampler(MCMCSampler):
         -------
         beta : float
             The new beta value.
-        min_step : float
-            The new minimum step size if adaptive_min_step is True.
+        min_beta_step : float
+            The new minimum beta step size if adaptive_min_beta_step is True.
         """
         if not self.adaptive:
             beta += beta_step
@@ -144,11 +147,13 @@ class SMCSampler(MCMCSampler):
                     beta_max = beta_try
             beta_star = beta_min
 
-            if self.adaptive_min_step:
-                min_step = min_step * (1 - beta_prev) / (1 - beta_star)
-            beta = max(beta_star, beta_prev + min_step)
-            beta = min(beta, 1.0)
-        return beta, min_step
+            if self.adaptive_min_beta_step:
+                min_beta_step = (
+                    min_beta_step * (1 - beta_prev) / (1 - beta_star)
+                )
+            beta = max(beta_star, beta_prev + min_beta_step)
+            beta = min(beta, max_beta_step, 1.0)
+        return beta, min_beta_step
 
     @track_calls
     def sample(
@@ -156,7 +161,8 @@ class SMCSampler(MCMCSampler):
         n_samples: int,
         n_steps: int | None = None,
         adaptive: bool = True,
-        min_step: float | None = None,
+        min_beta_step: float | None = None,
+        max_beta_step: float | None = None,
         max_n_steps: int | None = None,
         target_efficiency: float = 0.5,
         target_efficiency_rate: float = 1.0,
@@ -179,9 +185,12 @@ class SMCSampler(MCMCSampler):
             :code:`adaptive=False`. Default is None.
         adaptive : bool, optional
             Whether to adaptively determine the beta schedule. Default is True.
-        min_step : float, optional
+        min_beta_step : float, optional
             The minimum beta step size when using adaptive beta. Default is None,
             which means no minimum step size.
+        max_beta_step : float, optional
+            The maximum beta step size when using adaptive beta. Default is None,
+            which means no maximum step size.
         max_n_steps : int, optional
             The maximum number of SMC iterations to perform when using adaptive
             beta. Default is None, which means no maximum.
@@ -274,16 +283,22 @@ class SMCSampler(MCMCSampler):
             beta_step = np.nan
         self.adaptive = adaptive
 
-        if min_step is None:
+        if min_beta_step is None:
             if max_n_steps is None:
-                min_step = 0.0
-                self.adaptive_min_step = False
+                min_beta_step = 0.0
+                self.adaptive_min_beta_step = False
             else:
-                min_step = 1 / max_n_steps
-                self.adaptive_min_step = True
+                min_beta_step = 1 / max_n_steps
+                self.adaptive_min_beta_step = True
         else:
-            self.adaptive_min_step = False
+            self.adaptive_min_beta_step = False
 
+        if max_beta_step is not None:
+            if max_beta_step <= 0 or max_beta_step >= 1:
+                raise ValueError("max_beta_step must be in (0, 1)")
+            self.max_beta_step = max_beta_step
+        else:
+            self.max_beta_step = 1.0
         iterations = iterations or 0
         if checkpoint_callback is None and checkpoint_every is not None:
             checkpoint_callback = self.default_file_checkpoint_callback(
@@ -315,11 +330,12 @@ class SMCSampler(MCMCSampler):
             while True:
                 iterations += 1
 
-                beta, min_step = self.determine_beta(
+                beta, min_beta_step = self.determine_beta(
                     samples,
                     beta,
                     beta_step,
-                    min_step,
+                    min_beta_step,
+                    max_beta_step=self.max_beta_step,
                     beta_tolerance=beta_tolerance,
                 )
                 self.history.eff_target.append(
