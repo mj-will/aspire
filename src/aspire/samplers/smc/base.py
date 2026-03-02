@@ -152,7 +152,7 @@ class SMCSampler(MCMCSampler):
                     min_beta_step * (1 - beta_prev) / (1 - beta_star)
                 )
             beta = max(beta_star, beta_prev + min_beta_step)
-            beta = min(beta, max_beta_step, 1.0)
+            beta = min(beta, beta_prev + max_beta_step, 1.0)
         return beta, min_beta_step
 
     @track_calls
