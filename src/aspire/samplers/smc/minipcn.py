@@ -38,6 +38,8 @@ class MiniPCNSMC(SMCSampler):
         checkpoint_every: int | None = None,
         checkpoint_file_path: str | None = None,
         resume_from: str | bytes | dict | None = None,
+        beta_tolerance: float = 1e-6,
+        store_sample_history: bool = True,
     ) -> SMCSamples:
         from orng import ArrayRNG
 
@@ -62,6 +64,8 @@ class MiniPCNSMC(SMCSampler):
             checkpoint_every=checkpoint_every,
             checkpoint_file_path=checkpoint_file_path,
             resume_from=resume_from,
+            beta_tolerance=beta_tolerance,
+            store_sample_history=store_sample_history,
         )
 
     def mutate(
