@@ -843,6 +843,85 @@ class PTMCMCSamples(MCMCSamples):
             if not self.xp.all(self.xp.diff(self.betas) < 0):
                 raise ValueError("betas must be in decreasing order")
 
+    def subsample(
+        self, n_samples_per_temperature: int, rng=None
+    ) -> "PTMCMCSamples":
+        """Subsample the chain to a fixed number of samples per temperature.
+
+        Samples are drawn without replacement independently for each temperature.
+
+        Parameters
+        ----------
+        n_samples_per_temperature
+            Number of samples to draw per temperature.
+        rng
+            Optional numpy random generator. If None, a new one is created.
+        """
+        if rng is None:
+            rng = np.random.default_rng()
+
+        n_per_temp = int(np.prod(self.chain_shape[1:]))
+        if n_samples_per_temperature > n_per_temp:
+            raise ValueError(
+                f"n_samples_per_temperature ({n_samples_per_temperature}) exceeds "
+                f"available samples per temperature ({n_per_temp})"
+            )
+
+        # Reshape to (n_temps, n_per_temp, ...) for per-temperature indexing
+        chain = self.xp.reshape(self.x, (self.n_temps, n_per_temp, self.dims))
+        ll = (
+            self.xp.reshape(
+                self._reshape_like_chain(self.log_likelihood),
+                (self.n_temps, n_per_temp),
+            )
+            if self.log_likelihood is not None
+            else None
+        )
+        lp = (
+            self.xp.reshape(
+                self._reshape_like_chain(self.log_prior),
+                (self.n_temps, n_per_temp),
+            )
+            if self.log_prior is not None
+            else None
+        )
+        lq = (
+            self.xp.reshape(
+                self._reshape_like_chain(self.log_q),
+                (self.n_temps, n_per_temp),
+            )
+            if self.log_q is not None
+            else None
+        )
+
+        chains_sub, ll_sub, lp_sub, lq_sub = [], [], [], []
+        for t in range(self.n_temps):
+            idx = rng.choice(
+                n_per_temp, size=n_samples_per_temperature, replace=False
+            )
+            chains_sub.append(chain[t][idx])
+            if ll is not None:
+                ll_sub.append(ll[t][idx])
+            if lp is not None:
+                lp_sub.append(lp[t][idx])
+            if lq is not None:
+                lq_sub.append(lq[t][idx])
+
+        return self.__class__.from_chain(
+            chain=self.xp.stack(chains_sub, axis=0),
+            betas=self.betas,
+            log_likelihood=self.xp.stack(ll_sub, axis=0) if ll_sub else None,
+            log_prior=self.xp.stack(lp_sub, axis=0) if lp_sub else None,
+            log_q=self.xp.stack(lq_sub, axis=0) if lq_sub else None,
+            parameters=self.parameters,
+            xp=self.xp,
+            dtype=self.dtype,
+            device=self.device,
+            thin=self.thin,
+            burn_in=self.burn_in,
+            autocorrelation_time=self.autocorrelation_time,
+        )
+
     @classmethod
     def from_chain(
         cls,
@@ -1128,25 +1207,9 @@ class PTMCMCSamples(MCMCSamples):
         return fig
 
     def __getitem__(self, idx):
-        chain = self.chain[:, idx, ...]
-        log_likelihood = self._reshape_like_chain(self.log_likelihood)
-        log_prior = self._reshape_like_chain(self.log_prior)
-        log_q = self._reshape_like_chain(self.log_q)
-        return self.__class__.from_chain(
-            chain=chain,
-            betas=self.betas,
-            log_likelihood=None
-            if log_likelihood is None
-            else log_likelihood[:, idx, ...],
-            log_prior=None if log_prior is None else log_prior[:, idx, ...],
-            log_q=None if log_q is None else log_q[:, idx, ...],
-            parameters=self.parameters,
-            xp=self.xp,
-            dtype=self.dtype,
-            device=self.device,
-            thin=self.thin,
-            burn_in=self.burn_in,
-            autocorrelation_time=self.autocorrelation_time,
+        raise NotImplementedError(
+            "Slicing is not supported for PTMCMCSamples. Use at_temperature()"
+            " to extract samples at a specific temperature."
         )
 
 

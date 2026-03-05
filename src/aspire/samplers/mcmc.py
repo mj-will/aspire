@@ -1,3 +1,4 @@
+import logging
 from typing import Callable
 
 import numpy as np
@@ -5,6 +6,8 @@ import numpy as np
 from ..samples import MCMCSamples, Samples, to_numpy
 from ..utils import AspireFile, track_calls
 from .base import Sampler
+
+logger = logging.getLogger(__name__)
 
 
 class MCMCSampler(Sampler):
@@ -165,7 +168,7 @@ class Emcee(MCMCSampler):
     @track_calls
     def sample(
         self,
-        n_samples: int,
+        n_samples: int = None,
         nwalkers: int = None,
         nsteps: int = 500,
         rng=None,
@@ -216,6 +219,12 @@ class Emcee(MCMCSampler):
             checkpoint_file_path=checkpoint_file_path,
         )
 
+        if n_samples is not None:
+            logger.info(
+                f"Subsampling MCMC samples to {n_samples} samples after burn-in."
+            )
+            samples_mcmc = samples_mcmc[:n_samples]
+
         return samples_mcmc
 
 
@@ -223,7 +232,8 @@ class MiniPCN(MCMCSampler):
     @track_calls
     def sample(
         self,
-        n_samples,
+        n_samples: int | None = None,
+        n_walkers: int | None = None,
         rng=None,
         target_acceptance_rate=0.234,
         n_steps=100,
@@ -238,7 +248,8 @@ class MiniPCN(MCMCSampler):
         from minipcn import Sampler
 
         rng = rng or self.rng or np.random.default_rng()
-        p0 = self.draw_initial_samples(n_samples).x
+        n_walkers = n_walkers or n_samples
+        p0 = self.draw_initial_samples(n_walkers).x
 
         z0 = to_numpy(self.preconditioning_transform.fit(p0))
 
@@ -290,6 +301,11 @@ class MiniPCN(MCMCSampler):
             samples_mcmc = full_chain_samples.post_process(
                 burn_in=burnin, thin=thin
             )
+            if n_samples is not None:
+                logger.info(
+                    f"Subsampling MCMC samples to {n_samples} samples after burn-in and thinning."
+                )
+                samples_mcmc = samples_mcmc[:n_samples]
 
         return samples_mcmc
 
