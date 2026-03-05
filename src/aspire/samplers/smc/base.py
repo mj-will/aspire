@@ -3,12 +3,14 @@ import logging
 from typing import Any, Callable
 
 import array_api_compat.numpy as np
+from orng import ArrayRNG
 
 from ...flows.base import Flow
 from ...history import SMCHistory
 from ...samples import SMCSamples
 from ...utils import (
     asarray,
+    determine_backend_name,
     effective_sample_size,
     track_calls,
     update_at_indices,
@@ -19,7 +21,29 @@ logger = logging.getLogger(__name__)
 
 
 class SMCSampler(MCMCSampler):
-    """Base class for Sequential Monte Carlo samplers."""
+    """Base class for Sequential Monte Carlo samplers.
+
+    Parameters
+    ----------
+    log_likelihood : Callable
+        The log likelihood function.
+    log_prior : Callable
+        The log prior function.
+    dims : int
+        The number of dimensions.
+    prior_flow : Flow
+        The prior flow.
+    xp : Callable
+        The array API backend.
+    dtype : Any | str | None, optional
+        The data type for the samples, by default None.
+    parameters : list[str] | None, optional
+        The parameter names, by default None.
+    rng : np.random.Generator | ArrayRNG | None, optional
+        The random number generator, by default None.
+    preconditioning_transform : Callable | None, optional
+        The preconditioning transform, by default None.
+    """
 
     def __init__(
         self,
@@ -30,7 +54,7 @@ class SMCSampler(MCMCSampler):
         xp: Callable,
         dtype: Any | str | None = None,
         parameters: list[str] | None = None,
-        rng: np.random.Generator | None = None,
+        rng: np.random.Generator | ArrayRNG | None = None,
         preconditioning_transform: Callable | None = None,
     ):
         super().__init__(
@@ -43,7 +67,7 @@ class SMCSampler(MCMCSampler):
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
-        self.rng = rng or np.random.default_rng()
+        self.rng = rng or ArrayRNG(determine_backend_name(xp=xp))
         self._adaptive_target_efficiency = False
 
     @property
