@@ -83,5 +83,10 @@ fixable = ["ALL"]
 extend-select = ["I"]
 
 [tool.pytest.ini_options]
-addopts = "--cov=aspire --cov-report=term-missing -ra"
+addopts = [
+    "--cov=aspire",
+    "--cov-report=term-missing",
+    "-ra",
+    "--import-mode=importlib",
+]
 testpaths = ["tests"]
