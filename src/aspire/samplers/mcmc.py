@@ -13,7 +13,7 @@ class MCMCSampler(Sampler):
         n_samples_drawn = 0
         samples = None
         while n_samples_drawn < n_samples:
-            x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
+            x, log_q = self.proposal.sample_and_log_prob(n_samples)
             new_samples = Samples(
                 x,
                 xp=self.xp,
@@ -93,7 +93,7 @@ class Emcee(MCMCSampler):
         z = self.sampler.get_chain(flat=True, discard=discard)
         x = self.preconditioning_transform.inverse(z)[0]
 
-        x_evidence, log_q = self.prior_flow.sample_and_log_prob(n_samples)
+        x_evidence, log_q = self.proposal.sample_and_log_prob(n_samples)
         samples_evidence = Samples(x_evidence, log_q=log_q, xp=self.xp)
         samples_evidence.log_prior = self.log_prior(samples_evidence)
         samples_evidence.log_likelihood = self.log_likelihood(samples_evidence)

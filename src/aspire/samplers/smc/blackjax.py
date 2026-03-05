@@ -18,20 +18,22 @@ class BlackJAXSMC(SMCSampler):
         log_likelihood,
         log_prior,
         dims,
-        prior_flow,
-        xp,
+        proposal=None,
+        xp=None,
         dtype=None,
         parameters=None,
         preconditioning_transform=None,
-        rng: np.random.Generator | None = None,  # New parameter
+        rng: np.random.Generator | None = None,
+        prior_flow=None,
     ):
         # For JAX compatibility, we'll keep the original xp
         super().__init__(
             log_likelihood=log_likelihood,
             log_prior=log_prior,
             dims=dims,
-            prior_flow=prior_flow,
+            proposal=proposal,
             xp=xp,
+            prior_flow=prior_flow,
             dtype=dtype,
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
@@ -54,7 +56,7 @@ class BlackJAXSMC(SMCSampler):
         samples = SMCSamples(x_params, xp=self.xp, dtype=self.dtype)
 
         # Compute log probabilities
-        log_q = self.prior_flow.log_prob(samples.x)
+        log_q = self.proposal.log_prob(samples.x)
         samples.log_q = samples.array_to_namespace(log_q)
         samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
         samples.log_likelihood = samples.array_to_namespace(
@@ -336,7 +338,7 @@ class BlackJAXSMC(SMCSampler):
             parameters=self.parameters,
         )
         samples.log_q = samples.array_to_namespace(
-            self.prior_flow.log_prob(samples.x)
+            self.proposal.log_prob(samples.x)
         )
         samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
         samples.log_likelihood = samples.array_to_namespace(
