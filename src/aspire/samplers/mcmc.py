@@ -27,27 +27,29 @@ class MCMCSampler(Sampler):
         log_likelihood,
         log_prior,
         dims,
-        prior_flow,
-        xp,
+        proposal=None,
+        xp=None,
         dtype=None,
         parameters=None,
         preconditioning_transform=None,
         rng=None,
+        prior_flow=None,
     ):
         super().__init__(
-            log_likelihood,
-            log_prior,
-            dims,
-            prior_flow,
-            xp,
-            dtype,
-            parameters,
-            preconditioning_transform,
+            log_likelihood=log_likelihood,
+            log_prior=log_prior,
+            dims=dims,
+            proposal=proposal,
+            xp=xp,
+            dtype=dtype,
+            parameters=parameters,
+            preconditioning_transform=preconditioning_transform,
+            prior_flow=prior_flow,
         )
         self.rng = rng or RandomGenerator(backend=self.backend_str)
 
     def draw_initial_samples(self, n_samples: int) -> Samples:
-        """Draw initial samples from the prior flow.
+        """Draw initial samples from the proposal.
 
         Parameters
         ----------
@@ -59,13 +61,13 @@ class MCMCSampler(Sampler):
         Samples
             The drawn samples, with log probabilities, log prior, and log likelihood.
         """
-        # Flow may propose samples outside prior bounds, so we may need
+        # The proposal may draw samples outside prior bounds, so we may need
         # to try multiple times to get enough valid samples.
         n_samples_drawn = 0
         samples = None
         while n_samples_drawn < n_samples:
-            x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
-            if not self.prior_flow.xp.isfinite(log_q).all():
+            x, log_q = self.proposal.sample_and_log_prob(n_samples)
+            if not self.proposal.xp.isfinite(log_q).all():
                 raise ValueError(
                     "Proposal returned non-finite log probabilities. "
                     "aspire assumes the proposal is a valid, normalized "
