@@ -126,7 +126,7 @@ class MiniPCNSMC(SMCSampler):
             parameters=self.parameters,
         )
         samples.log_q = samples.array_to_namespace(
-            self.prior_flow.log_prob(samples.x)
+            self.proposal.log_prob(samples.x)
         )
         samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
         samples.log_likelihood = samples.array_to_namespace(

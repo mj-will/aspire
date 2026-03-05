@@ -1,9 +1,11 @@
 import logging
 import pickle
+import warnings
 from pathlib import Path
 from typing import Any, Callable
 
 from ..flows.base import Flow
+from ..proposals import Proposal
 from ..samples import Samples
 from ..transforms import IdentityTransform
 from ..utils import AspireFile, asarray, dump_state, track_calls
@@ -36,13 +38,26 @@ class Sampler:
         log_likelihood: Callable,
         log_prior: Callable,
         dims: int,
-        prior_flow: Flow,
-        xp: Callable,
+        proposal: Flow | Proposal | None = None,
+        xp: Callable = None,
         dtype: Any | str | None = None,
         parameters: list[str] | None = None,
         preconditioning_transform: Callable | None = None,
+        prior_flow: Flow | Proposal | None = None,
     ):
-        self.prior_flow = prior_flow
+        if prior_flow is not None:
+            warnings.warn(
+                "The 'prior_flow' argument is deprecated; "
+                "use 'proposal' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if proposal is not None:
+                raise ValueError(
+                    "Cannot specify both 'proposal' and 'prior_flow'."
+                )
+            proposal = prior_flow
+        self.proposal = proposal
         self._log_likelihood = log_likelihood
         self.log_prior = log_prior
         self.dims = dims
@@ -57,6 +72,25 @@ class Sampler:
             self.preconditioning_transform = IdentityTransform(xp=self.xp)
         else:
             self.preconditioning_transform = preconditioning_transform
+
+    @property
+    def prior_flow(self):
+        """Deprecated: use ``proposal`` instead."""
+        warnings.warn(
+            "'prior_flow' is deprecated; use 'proposal' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.proposal
+
+    @prior_flow.setter
+    def prior_flow(self, value):
+        warnings.warn(
+            "'prior_flow' is deprecated; use 'proposal' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.proposal = value
 
     def fit_preconditioning_transform(self, x):
         """Fit the data transform to the data."""

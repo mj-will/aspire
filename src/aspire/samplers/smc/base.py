@@ -6,6 +6,7 @@ import array_api_compat.numpy as np
 
 from ...flows.base import Flow
 from ...history import SMCHistory
+from ...proposals import Proposal
 from ...samples import SMCSamples
 from ...utils import (
     asarray,
@@ -26,19 +27,21 @@ class SMCSampler(MCMCSampler):
         log_likelihood: Callable,
         log_prior: Callable,
         dims: int,
-        prior_flow: Flow,
-        xp: Callable,
+        proposal: Flow | Proposal | None = None,
+        xp: Callable = None,
         dtype: Any | str | None = None,
         parameters: list[str] | None = None,
         rng: np.random.Generator | None = None,
         preconditioning_transform: Callable | None = None,
+        prior_flow: Flow | Proposal | None = None,
     ):
         super().__init__(
             log_likelihood=log_likelihood,
             log_prior=log_prior,
             dims=dims,
-            prior_flow=prior_flow,
+            proposal=proposal,
             xp=xp,
+            prior_flow=prior_flow,
             dtype=dtype,
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
@@ -408,7 +411,7 @@ class SMCSampler(MCMCSampler):
     def log_prob(self, z, beta=None):
         x, log_abs_det_jacobian = self.preconditioning_transform.inverse(z)
         samples = SMCSamples(x, xp=self.xp, beta=beta, dtype=self.dtype)
-        log_q = self.prior_flow.log_prob(samples.x)
+        log_q = self.proposal.log_prob(samples.x)
         samples.log_q = samples.array_to_namespace(log_q)
         samples.log_prior = self.log_prior(samples)
         samples.log_likelihood = self.log_likelihood(samples)
@@ -471,11 +474,12 @@ class NumpySMCSampler(SMCSampler):
         log_likelihood,
         log_prior,
         dims,
-        prior_flow,
-        xp,
+        proposal=None,
+        xp=None,
         dtype=None,
         parameters=None,
         preconditioning_transform=None,
+        prior_flow=None,
     ):
         if preconditioning_transform is not None:
             preconditioning_transform = preconditioning_transform.new_instance(
@@ -485,8 +489,9 @@ class NumpySMCSampler(SMCSampler):
             log_likelihood,
             log_prior,
             dims,
-            prior_flow=prior_flow,
+            proposal=proposal,
             xp=xp,
+            prior_flow=prior_flow,
             dtype=dtype,
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
