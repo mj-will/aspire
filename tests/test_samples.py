@@ -438,37 +438,105 @@ def test_chain_samples_post_process_noop_returns_self(samples_cls, rng):
     assert samples.post_process(burn_in=0, thin=1) is samples
 
 
-@pytest.mark.parametrize("samples_cls", [MCMCSamples, PTMCMCSamples])
-def test_chain_samples_getitem_preserves_metadata(samples_cls, rng):
+def test_mcmc_samples_getitem_preserves_metadata(rng):
     dims = 2
-    if samples_cls is MCMCSamples:
-        chain = rng.normal(size=(7, 2, dims))
-        kwargs = {}
-    else:
-        chain = rng.normal(size=(3, 7, 2, dims))
-        kwargs = {"betas": np.array([1.0, 0.5, 0.0])}
-
-    samples = samples_cls.from_chain(
+    chain = rng.normal(size=(7, 2, dims))
+    samples = MCMCSamples.from_chain(
         chain=chain,
         thin=3,
         burn_in=5,
         autocorrelation_time=np.ones(chain.shape[0]),
-        **kwargs,
     )
     out = samples[:4]
 
-    assert isinstance(out, samples_cls)
-    if samples_cls is MCMCSamples:
-        assert out.chain_shape == (len(out.x),)
-    else:
-        assert out.chain_shape == (chain.shape[0], 4, chain.shape[2])
+    assert isinstance(out, MCMCSamples)
+    assert out.chain_shape == (len(out.x),)
+    assert out.x.shape == (4, dims)
     assert out.thin == samples.thin
     assert out.burn_in == samples.burn_in
     assert np.allclose(out.autocorrelation_time, samples.autocorrelation_time)
 
-    if samples_cls is PTMCMCSamples:
-        assert np.allclose(out.betas, samples.betas)
-        assert out.cold_chain().x.shape == (4 * chain.shape[2], dims)
+
+def test_ptmcmc_getitem_raises_not_implemented(rng):
+    chain = rng.normal(size=(3, 7, 2, 2))
+    samples = PTMCMCSamples.from_chain(
+        chain=chain, betas=np.array([1.0, 0.5, 0.0])
+    )
+    with pytest.raises(NotImplementedError):
+        _ = samples[:4]
+
+
+def test_ptmcmc_subsample_shapes_and_metadata(rng):
+    n_temps, n_steps, n_walkers, dims = 4, 20, 3, 2
+    chain = rng.normal(size=(n_temps, n_steps, n_walkers, dims))
+    ll = rng.normal(size=(n_temps, n_steps, n_walkers))
+    lp = rng.normal(size=(n_temps, n_steps, n_walkers))
+    betas = np.array([1.0, 0.5, 0.2, 0.0])
+    samples = PTMCMCSamples.from_chain(
+        chain=chain,
+        betas=betas,
+        log_likelihood=ll,
+        log_prior=lp,
+        thin=2,
+        burn_in=5,
+        autocorrelation_time=np.ones(n_temps),
+    )
+
+    n_sub = 10
+    out = samples.subsample(n_sub, rng=rng)
+
+    assert isinstance(out, PTMCMCSamples)
+    assert out.chain_shape == (n_temps, n_sub)
+    assert out.x.shape == (n_temps * n_sub, dims)
+    assert out.log_likelihood.shape == (n_temps * n_sub,)
+    assert out.log_prior.shape == (n_temps * n_sub,)
+    assert np.allclose(out.betas, betas)
+    assert out.thin == samples.thin
+    assert out.burn_in == samples.burn_in
+    assert np.allclose(out.autocorrelation_time, samples.autocorrelation_time)
+
+
+def test_ptmcmc_subsample_samples_are_from_original(rng):
+    n_temps, n_steps, dims = 3, 15, 2
+    chain = rng.normal(size=(n_temps, n_steps, dims))
+    betas = np.array([1.0, 0.5, 0.0])
+    samples = PTMCMCSamples.from_chain(chain=chain, betas=betas)
+
+    out = samples.subsample(5, rng=rng)
+
+    # Each subsampled row must appear in the original flat chain
+    original_x = samples.x
+    for row in out.x:
+        assert any(
+            np.allclose(row, original_x[i]) for i in range(len(original_x))
+        )
+
+
+def test_ptmcmc_subsample_no_replacement_within_temperature(rng):
+    n_temps, n_steps, dims = 2, 20, 1
+    chain = np.arange(n_temps * n_steps * dims, dtype=float).reshape(
+        n_temps, n_steps, dims
+    )
+    betas = np.array([1.0, 0.0])
+    samples = PTMCMCSamples.from_chain(chain=chain, betas=betas)
+
+    out = samples.subsample(10, rng=rng)
+    out_chain = out.chain  # (n_temps, 10, dims)
+
+    for t in range(n_temps):
+        rows = [out_chain[t, i, 0] for i in range(10)]
+        assert len(rows) == len(set(rows)), (
+            "Duplicate samples within a temperature"
+        )
+
+
+def test_ptmcmc_subsample_too_many_raises(rng):
+    chain = rng.normal(size=(3, 5, 2))
+    samples = PTMCMCSamples.from_chain(
+        chain=chain, betas=np.array([1.0, 0.5, 0.0])
+    )
+    with pytest.raises(ValueError, match="exceeds"):
+        samples.subsample(6, rng=rng)
 
 
 def test_ptmcmc_ti_matches_equations_35_to_37():
