@@ -1021,7 +1021,7 @@ class PTMCMCSamples(MCMCSamples):
                 betas2 = np.concatenate((betas0[:-1:2], [0]))
                 logls2 = np.concatenate((logls[:-1:2], [logls[-1]]))
 
-            log_evidence_2 = -np.trapz(logls2, betas2)
+            log_evidence_2 = -np.trapezoid(logls2, betas2)
             log_evidence_error = abs(log_evidence - log_evidence_2)
         else:
             raise ValueError(
