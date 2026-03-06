@@ -60,7 +60,7 @@ def test_emcee_mcmc_saves_chain_checkpoint(monkeypatch, tmp_path):
     )
     checkpoint_file = tmp_path / "emcee_ckpt.h5"
     out = sampler.sample(
-        n_samples=6,
+        n_samples=None,
         nwalkers=6,
         nsteps=4,
         checkpoint_file_path=str(checkpoint_file),
