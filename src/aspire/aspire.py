@@ -375,7 +375,7 @@ class Aspire:
 
     def sample_posterior(
         self,
-        n_samples: int = 1000,
+        n_samples: int | None = None,
         sampler: str = "importance",
         xp: Any = None,
         return_history: bool = False,
@@ -407,8 +407,9 @@ class Aspire:
 
         Parameters
         ----------
-        n_samples : int
-            The number of sample to draw.
+        n_samples : int | None
+            The number of sample to draw. If None, the behavior will depend on
+            the sampler.
         sampler: str
             Sampling algorithm to use for drawing the posterior samples.
         xp: Any
