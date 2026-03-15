@@ -82,15 +82,18 @@ aspire = Aspire(
     flow_class="NSF",  # Use Neural Spline Flow from zuko (default backend)
 )
 
-# Fit the normalizing flow to the initial samples
-fit_history = aspire.fit(initial_samples, n_epochs=30)
-# Plot loss
-fit_history.plot_loss().savefig(outdir / "loss.png")
-
-# Sample from the posterior using SMC
 # We enable checkpointing to demonstrate that functionality, but in practice
 # this may not be necessary for such a small example
-with aspire.auto_checkpoint(outdir / "aspire_smc_checkpoint.h5", every=1):
+# This will save a checkpoint after each SMC iteration, and resume from the last
+# so long as `resume=True` and the checkpoint file exists.
+with aspire.auto_checkpoint(
+    outdir / "aspire_smc_checkpoint.h5", every=1, resume=True
+):
+    # Fit the normalizing flow to the initial samples
+    fit_history = aspire.fit(initial_samples, n_epochs=30)
+    # Plot loss
+    fit_history.plot_loss().savefig(outdir / "loss.png")
+    # Sample from the posterior using SMC
     samples, history = aspire.sample_posterior(
         sampler="smc",  # Sequential Monte Carlo, this uses the default minipcn sampler
         n_samples=500,  # Number of particles in SMC
@@ -113,9 +116,10 @@ history.plot_sample_history(x_axis="log_likelihood").savefig(
 # additional metadata
 with AspireFile(outdir / "aspire_smc_results.h5", "w") as f:
     aspire.save_config(f, "aspire_config")
+    aspire.save_sampler_config(f, "sampler_config")
+    aspire.save_flow(f, "flow")
     samples.save(f, "posterior_samples")
     history.save(f, "smc_history")
-    aspire.save_flow(f, "flow")
     fit_history.save(f, "fit_history")
 
 # Plot corner plot of the samples
