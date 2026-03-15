@@ -2,6 +2,7 @@ import copy
 import logging
 import multiprocessing as mp
 import pickle
+import warnings
 from contextlib import contextmanager
 from inspect import signature
 from typing import Any, Callable
@@ -892,6 +893,7 @@ class Aspire:
         checkpoint_path: str,
         checkpoint_dset: str,
         config_path: str,
+        sampler_config_path: str = "sampler_config",
     ) -> tuple[
         bytes | None, dict | None, dict | None, str | None, int | None, Any
     ]:
@@ -900,6 +902,11 @@ class Aspire:
             config_dict = (
                 load_from_h5_file(h5_file, config_path)
                 if config_path in h5_file
+                else None
+            )
+            standalone_sampler_config = (
+                load_from_h5_file(h5_file, sampler_config_path)
+                if sampler_config_path in h5_file
                 else None
             )
             try:
@@ -917,9 +924,30 @@ class Aspire:
 
         sampler_config = None
         saved_sampler_type = None
+        used_legacy_sampler_config = False
         if config_dict is not None:
-            sampler_config = config_dict.get("sampler_config")
             saved_sampler_type = config_dict.get("sampler_type")
+            sampler_config = config_dict.get("sampler_config")
+            used_legacy_sampler_config = sampler_config is not None
+        if standalone_sampler_config is not None:
+            saved_sampler_type = (
+                saved_sampler_type
+                or standalone_sampler_config.get("sampler_type")
+            )
+            if sampler_config is None:
+                sampler_config = dict(standalone_sampler_config)
+                sampler_config.pop("sampler_type", None)
+                used_legacy_sampler_config = False
+        elif used_legacy_sampler_config:
+            warnings.warn(
+                (
+                    f"Loaded sampler metadata from legacy '{config_path}' "
+                    f"path in {file_path}; please migrate to "
+                    f"'{sampler_config_path}'."
+                ),
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         n_samples = None
         checkpoint_state = None
@@ -1003,6 +1031,7 @@ class Aspire:
 
     @classmethod
     def _build_aspire_from_file(
+        cls,
         file_path: str,
         log_likelihood: Callable,
         log_prior: Callable,
