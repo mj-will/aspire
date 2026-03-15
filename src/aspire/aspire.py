@@ -10,7 +10,7 @@ import h5py
 
 from .flows import get_flow_wrapper
 from .flows.base import Flow
-from .history import History
+from .history import FlowHistory, History
 from .samplers.base import Sampler
 from .samples import Samples
 from .transforms import (
@@ -234,6 +234,11 @@ class Aspire:
 
         if self.flow is None:
             self.init_flow()
+        elif getattr(self, "_skip_flow_training", False) and not overwrite:
+            logger.info(
+                "Skipping flow training because a checkpointed flow was loaded."
+            )
+            return FlowHistory()
 
         self.training_samples = samples
         logger.info(f"Training with {len(samples.x)} samples")
@@ -669,6 +674,7 @@ class Aspire:
             "_resume_n_samples",
             "_resume_overrides",
             "_resume_sampler_config",
+            "_skip_flow_training",
         ]
         prev_resume_state = {
             attr: getattr(self, attr)
@@ -689,6 +695,11 @@ class Aspire:
                 checkpoint_dset="state",
                 config_path="aspire_config",
             )
+            self._load_flow_from_file(
+                path,
+                flow_path="flow",
+                required=False,
+            )
             self._set_resume_defaults(
                 checkpoint_bytes=checkpoint_bytes,
                 checkpoint_state=checkpoint_state,
@@ -696,6 +707,7 @@ class Aspire:
                 saved_sampler_type=saved_sampler_type,
                 n_samples=n_samples,
             )
+            self._skip_flow_training = self.flow is not None
             if self.xp is None and checkpoint_xp is not None:
                 self.xp = checkpoint_xp
         try:
@@ -966,7 +978,30 @@ class Aspire:
         self._resume_overrides = resume_kwargs or {}
         self._resume_sampler_config = sampler_config
 
-    @staticmethod
+    def _load_flow_from_file(
+        self,
+        file_path: str,
+        flow_path: str = "flow",
+        required: bool = True,
+    ) -> bool:
+        """Load a saved flow from file onto the current Aspire instance."""
+        with AspireFile(file_path, "r") as h5_file:
+            if flow_path in h5_file:
+                logger.info(f"Loading flow from {flow_path} in {file_path}")
+                self.load_flow(h5_file, path=flow_path)
+                return True
+        if required:
+            raise ValueError(
+                f"Flow path '{flow_path}' not found in {file_path}"
+            )
+        logger.warning(
+            "Flow not found at %s in %s; continuing without loading a flow.",
+            flow_path,
+            file_path,
+        )
+        return False
+
+    @classmethod
     def _build_aspire_from_file(
         file_path: str,
         log_likelihood: Callable,
@@ -1007,14 +1042,11 @@ class Aspire:
 
         aspire = Aspire(**config_dict)
 
-        with AspireFile(file_path, "r") as h5_file:
-            if flow_path in h5_file:
-                logger.info(f"Loading flow from {flow_path} in {file_path}")
-                aspire.load_flow(h5_file, path=flow_path)
-            else:
-                raise ValueError(
-                    f"Flow path '{flow_path}' not found in {file_path}"
-                )
+        aspire._load_flow_from_file(
+            file_path,
+            flow_path=flow_path,
+            required=True,
+        )
 
         if aspire.xp is None and checkpoint_xp is not None:
             aspire.xp = checkpoint_xp
