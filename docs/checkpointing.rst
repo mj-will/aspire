@@ -18,8 +18,12 @@ What gets saved
 ^^^^^^^^^^^^^^^
 
 - The sampler stores checkpoints under ``/checkpoint/state`` in the HDF5 file.
-- Aspire writes ``/aspire_config`` (with ``sampler_type`` and ``sampler_config``) and
-  ``/flow``. If these already exist, they are overwritten when saving.
+- Aspire writes ``/aspire_config`` for Aspire-level configuration,
+  ``/sampler_config`` for sampler metadata, and ``/flow`` for the saved flow.
+  If these already exist, they are overwritten when saving.
+- ``resume_from_file`` and ``auto_checkpoint(..., resume=True)`` also accept
+  legacy files where sampler metadata was embedded inside ``/aspire_config``
+  instead of stored under ``/sampler_config``.
 
 Resuming from a file
 --------------------
@@ -36,11 +40,32 @@ Resuming from a file
       )
       # Optionally continue checkpointing to the same file
       with aspire.auto_checkpoint("run.h5", every=1):
-          samples = aspire.sample_posterior()
+          samples = aspire.sample_posterior(...)
 
 - ``resume_from_file`` loads config, flow, and the last checkpoint (if present), and
   primes the instance to resume sampling; you can still override sampler kwargs when
   calling ``sample_posterior``.
+
+Resuming with ``auto_checkpoint``
+---------------------------------
+
+- If you use ``auto_checkpoint(..., resume=True)``, it will attempt to load the flow
+  and config from the checkpoint file when entering the context. If a checkpoint is
+  found, it will also load that and prime the instance to resume sampling. If no
+  checkpoint is found, it will simply load the flow and config (if present) and start
+  fresh sampling.
+
+  .. code-block:: python
+
+      aspire = Aspire(...)
+
+      with aspire.auto_checkpoint("run.h5", every=1, resume=True):
+          # Flow with be loaded from the file if present and training will be skipped
+          aspire.fit(...)
+          # If a checkpoint was found, sampling will resume from that; otherwise it will start from scratch
+          samples = aspire.sample_posterior(...)
+
+
 
 Manual resume via ``sample_posterior`` args
 -------------------------------------------
@@ -86,3 +111,4 @@ Notes and tips
   you want full control over how checkpoints are persisted or inspected. Provide a
   callable that accepts the checkpoint state dict; from there you can, for example,
   serialize to another format or push to remote storage.
+- When resuming, you must still specify the keyword arguments for :code:`sample_posterior`.
