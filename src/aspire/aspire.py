@@ -5,6 +5,7 @@ import pickle
 import warnings
 from contextlib import contextmanager
 from inspect import signature
+from pathlib import Path
 from typing import Any, Callable
 
 import h5py
@@ -682,7 +683,9 @@ class Aspire:
             for attr in resume_attrs
             if hasattr(self, attr)
         }
-        if resume:
+        path = Path(path)
+        if resume and path.is_file():
+            logger.info(f"Resuming from checkpoint file at {path}")
             (
                 checkpoint_bytes,
                 checkpoint_state,
