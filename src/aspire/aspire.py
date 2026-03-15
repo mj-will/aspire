@@ -696,6 +696,11 @@ class Aspire:
                 checkpoint_dset="state",
                 config_path="aspire_config",
             )
+            requested_n_samples = self._resume_n_samples_from_sampler_config(
+                sampler_config
+            )
+            if requested_n_samples is not None:
+                n_samples = requested_n_samples
             self._load_flow_from_file(
                 path,
                 flow_path="flow",
@@ -1006,6 +1011,42 @@ class Aspire:
         self._resume_overrides = resume_kwargs or {}
         self._resume_sampler_config = sampler_config
 
+    @staticmethod
+    def _resume_n_samples_from_sampler_config(
+        sampler_config: dict | None,
+    ) -> int | None:
+        """Infer the original sample_posterior n_samples from saved sample calls."""
+        if not isinstance(sampler_config, dict):
+            return None
+
+        sample_calls = sampler_config.get("sample_calls")
+        if not isinstance(sample_calls, dict):
+            return None
+
+        sample_args = sample_calls.get("args")
+        if hasattr(sample_args, "__len__") and not isinstance(
+            sample_args, (str, bytes, dict)
+        ):
+            if len(sample_args) == 0:
+                sample_args = None
+        else:
+            sample_args = None
+
+        if sample_args is not None:
+            try:
+                return int(sample_args[0])
+            except (TypeError, ValueError):
+                return None
+
+        sample_kwargs = sample_calls.get("kwargs")
+        if isinstance(sample_kwargs, dict) and "n_samples" in sample_kwargs:
+            try:
+                return int(sample_kwargs["n_samples"])
+            except (TypeError, ValueError):
+                return None
+
+        return None
+
     def _load_flow_from_file(
         self,
         file_path: str,
@@ -1079,6 +1120,12 @@ class Aspire:
 
         if aspire.xp is None and checkpoint_xp is not None:
             aspire.xp = checkpoint_xp
+
+        requested_n_samples = cls._resume_n_samples_from_sampler_config(
+            sampler_config
+        )
+        if requested_n_samples is not None:
+            n_samples = requested_n_samples
 
         return (
             aspire,
