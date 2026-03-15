@@ -9,7 +9,7 @@ authors = [
 ]
 description = "Accelerate Sequential Posterior Inference via REuse"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -75,7 +75,7 @@ aspire = "src/aspire"
 [tool.ruff]
 line-length = 79
 indent-width = 4
-target-version = "py39"
+target-version = "py311"
 
 [tool.ruff.lint]
 # Allow fix for all enabled rules (when `--fix`) is provided.
