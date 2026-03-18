@@ -315,16 +315,16 @@ class ParallelTemperedMCMCSampler(MCMCSampler):
 
     def log_likelihood_wrapper(self, z):
         """Wrapper for log-likelihood that takes array inputs."""
-        x, log_abs_det_jacobian = self.preconditioning_transform.inverse(z)
+        x, _ = self.preconditioning_transform.inverse(z)
         samples = Samples(x, xp=self.xp, dtype=self.dtype)
         samples.log_prior = self.log_prior(samples)
         samples.log_likelihood = self.log_likelihood(samples)
-        return to_numpy(samples.log_likelihood + log_abs_det_jacobian)
+        return to_numpy(samples.log_likelihood)
 
     def log_prior_wrapper(self, z):
         """Wrapper for log-prior that takes array inputs."""
-        x, _ = self.preconditioning_transform.inverse(z)
+        x, log_abs_det_jacobian = self.preconditioning_transform.inverse(z)
         samples = Samples(x, xp=self.xp, dtype=self.dtype)
         # Skip Jacobian to avoid double counting in log_prior and
         # log_likelihood
-        return self.log_prior(samples)
+        return self.log_prior(samples) + log_abs_det_jacobian
