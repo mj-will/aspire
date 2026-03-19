@@ -65,7 +65,7 @@ class MCMCSampler(Sampler):
         samples = None
         while n_samples_drawn < n_samples:
             x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
-            if not self.xp.isfinite(log_q).all():
+            if not self.prior_flow.xp.isfinite(log_q).all():
                 raise ValueError(
                     "Proposal returned non-finite log probabilities. "
                     "aspire assumes the proposal is a valid, normalized "
