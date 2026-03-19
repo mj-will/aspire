@@ -218,13 +218,16 @@ def logit(x: Array, eps: float | None = None) -> tuple[Array, Array]:
     return y, log_j
 
 
-def sigmoid(x: Array) -> tuple[Array, Array]:
+def sigmoid(x: Array, eps: float | None = None) -> tuple[Array, Array]:
     """Sigmoid function that also returns log Jacobian determinant.
 
     Parameters
     ----------
     x : float or ndarray
         Array of values
+    eps : float, optional
+        Epsilon value used to clamp inputs to [eps, 1 - eps]. If None, then
+        inputs are not clamped.
 
     Returns
     -------
@@ -235,6 +238,8 @@ def sigmoid(x: Array) -> tuple[Array, Array]:
     """
     xp = array_namespace(x)
     x = xp.divide(1, 1 + xp.exp(-x))
+    if eps:
+        x = xp.clip(x, eps, 1 - eps)
     log_j = (xp.log(x) + xp.log1p(-x)).sum(-1)
     return x, log_j
 
