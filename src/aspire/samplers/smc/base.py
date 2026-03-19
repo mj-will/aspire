@@ -424,6 +424,18 @@ class SMCSampler(MCMCSampler):
         # If n_final_samples is specified and differs, perform additional mutation steps
         if n_final_samples is not None and len(samples.x) != n_final_samples:
             logger.info(f"Generating {n_final_samples} final samples")
+            if not samples.xp.isfinite(samples.log_likelihood).all():
+                logger.warning(
+                    "Final samples contain non-finite log likelihood values"
+                )
+            if not samples.xp.isfinite(samples.log_prior).all():
+                logger.warning(
+                    "Final samples contain non-finite log prior values"
+                )
+            if not samples.xp.isfinite(samples.log_q).all():
+                logger.warning(
+                    "Final samples contain non-finite log proposal values"
+                )
             final_samples = samples.resample(
                 1.0, n_samples=n_final_samples, rng=self.rng
             )
