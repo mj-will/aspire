@@ -1254,16 +1254,26 @@ class SMCSamples(BaseSamples):
         n_samples: int | None = None,
         rng: np.random.Generator = None,
     ) -> "SMCSamples":
-        if beta == self.beta and n_samples is None:
-            logger.warning(
-                "Resampling with the same beta value, returning identical samples"
-            )
-            return self
+        """Resample the samples to a new inverse temperature beta.
+
+        If :code:`beta` is the same as the current beta and :code:`n_samples`
+        is None or equal to the current number of samples, returns the same
+        samples with updated beta.
+        """
         if rng is None:
             rng = np.random.default_rng()
         if n_samples is None:
             n_samples = len(self.x)
-        log_w = self.log_weights(beta)
+        if beta == self.beta:
+            if n_samples is None or n_samples == len(self.x):
+                logger.warning(
+                    "Resampling with the same beta value, returning identical samples"
+                )
+                return self
+            else:
+                log_w = self.xp.zeros(len(self.x))
+        else:
+            log_w = self.log_weights(beta)
         w = to_numpy(self.xp.exp(log_w - logsumexp(log_w)))
         idx = rng.choice(len(self.x), size=n_samples, replace=True, p=w)
         return self.__class__(
