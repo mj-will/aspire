@@ -126,3 +126,41 @@ def test_init_existing_flow(
     new_aspire_obj.flow = saved_flow
 
     assert new_aspire_obj.flow is saved_flow
+
+
+@pytest.mark.parametrize("value", [float("-inf"), float("nan"), float("inf")])
+def test_smc_log_likelihood_with_invalid_value(
+    log_likelihood,
+    log_prior,
+    dims,
+    samples,
+    parameters,
+    prior_bounds,
+    xp,
+    value,
+):
+    def log_likelihood_with_hole(samples):
+        logl = log_likelihood(samples)
+        # Set logl for samples with r<1.0 to the invalid value to create a "hole" in the likelihood
+        r = xp.linalg.norm(samples.x, axis=1)
+        logl = xp.where(r < 1.0, value, logl)
+        return logl
+
+    aspire = Aspire(
+        log_likelihood=log_likelihood_with_hole,
+        log_prior=log_prior,
+        dims=dims,
+        parameters=parameters,
+        prior_bounds=prior_bounds,
+        flow_matching=False,
+        bounded_to_unbounded=False,
+        flow_backend="zuko",
+    )
+
+    assert not xp.isfinite(log_likelihood_with_hole(samples)).all()
+
+    aspire.fit(samples, n_epochs=5)
+    aspire.sample_posterior(
+        n_samples=100,
+        sampler="smc",
+    )
