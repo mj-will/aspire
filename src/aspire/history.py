@@ -103,6 +103,7 @@ class SMCHistory(History):
             for k, v in self.__dict__.items()
             if k not in exclude
         }
+        dictionary["__len_sample_history"] = len(self.sample_history)
         recursively_save_to_h5_file(h5_file, path, dictionary)
         for i, samples in enumerate(self.sample_history):
             samples.save(h5_file, path=f"{path}__sample_history/{i}")
