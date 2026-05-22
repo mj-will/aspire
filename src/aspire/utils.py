@@ -284,16 +284,25 @@ def asarray(x, xp: Any = None, dtype: Any | None = None, **kwargs) -> Array:
     kwargs : dict
         Additional keyword arguments to pass to xp.asarray.
     """
+    if dtype is not None:
+        kwargs["dtype"] = resolve_dtype(dtype, xp=xp)
     # Handle DLPack conversion from JAX to PyTorch to avoid shape issues when
     # passing JAX arrays directly to torch.asarray.
     if is_jax_array(x) and is_torch_namespace(xp):
         tensor = xp.utils.dlpack.from_dlpack(x)
         if dtype is not None:
-            tensor = tensor.to(resolve_dtype(dtype, xp=xp))
+            tensor = tensor.to(kwargs["dtype"])
         return tensor
 
-    if dtype is not None:
-        kwargs["dtype"] = resolve_dtype(dtype, xp=xp)
+    # Handle DLPack conversion from PyTorch to JAX to avoid issues with
+    # detaching tensors
+    if is_torch_array(x) and is_jax_namespace(xp):
+        import jax.dlpack
+
+        arr = jax.dlpack.from_dlpack(x.detach())
+        if dtype is not None:
+            arr = arr.astype(kwargs["dtype"])
+        return arr
 
     if is_numpy_namespace(xp):
         return to_numpy(x, **kwargs)
