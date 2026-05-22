@@ -481,7 +481,7 @@ class SMCSampler(MCMCSampler):
     ) -> dict:
         """Prepare a serializable checkpoint payload for the sampler state."""
         return super().build_checkpoint_state(
-            samples,
+            samples.to_numpy(),
             iteration,
             meta={"beta": beta},
         )
