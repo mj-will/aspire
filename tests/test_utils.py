@@ -6,8 +6,10 @@ import array_api_compat.torch as torch_xp
 import h5py
 import jax.numpy as jnp
 import pytest
+from array_api_compat import array_namespace
 
 from aspire.utils import (
+    asarray,
     configure_logger,
     convert_dtype,
     dump_state,
@@ -82,6 +84,40 @@ def test_resolve_dtype_passes_through_torch_dtype():
 def test_resolve_dtype_errors_on_unknown():
     with pytest.raises(ValueError):
         resolve_dtype("not_a_real_dtype", np_xp)
+
+
+@pytest.mark.parametrize(
+    ("xp_input", "xp_target"),
+    [
+        (np_xp, torch_xp),
+        (np_xp, jnp),
+        (torch_xp, jnp),
+        (torch_xp, np_xp),
+        (jnp, np_xp),
+        (jnp, torch_xp),
+    ],
+)
+@pytest.mark.parametrize("dtype", [None, "float32", "float64"])
+def test_asarray(xp_input, xp_target, dtype):
+    arr = xp_input.asarray([1, 2, 3])
+    converted = asarray(arr, xp_target, dtype=dtype)
+    namespace = array_namespace(converted)
+    assert namespace is xp_target
+    assert np_xp.allclose(converted, [1, 2, 3])
+    assert (
+        converted.dtype == resolve_dtype(dtype, xp=namespace)
+        if dtype
+        else arr.dtype
+    )
+
+
+@pytest.mark.parametrize("xp_target", [np_xp, jnp])
+def test_asarray_torch_grad(xp_target):
+    arr = torch_xp.tensor([1.0, 2.0, 3.0], requires_grad=True)
+    converted = asarray(arr, xp_target)
+    namespace = array_namespace(converted)
+    assert namespace is xp_target
+    assert np_xp.allclose(converted, [1.0, 2.0, 3.0])
 
 
 def test_dump_state_round_trip(tmp_path):
