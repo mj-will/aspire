@@ -6,7 +6,13 @@ from typing import Any, Callable
 from ..flows.base import Flow
 from ..samples import Samples
 from ..transforms import IdentityTransform
-from ..utils import AspireFile, asarray, dump_state, track_calls
+from ..utils import (
+    AspireFile,
+    asarray,
+    determine_backend_name,
+    dump_state,
+    track_calls,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +53,7 @@ class Sampler:
         self._log_prior = log_prior
         self.dims = dims
         self.xp = xp
+        self.backend_str = determine_backend_name(xp=self.xp)
         self.dtype = dtype
         self.parameters = parameters
         self.history = None

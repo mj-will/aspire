@@ -2,6 +2,7 @@ import logging
 from typing import Callable
 
 import numpy as np
+from orng import ArrayRNG
 
 from ..samples import MCMCSamples, Samples, to_numpy
 from ..utils import AspireFile, track_calls
@@ -43,7 +44,7 @@ class MCMCSampler(Sampler):
             parameters,
             preconditioning_transform,
         )
-        self.rng = rng or np.random.default_rng()
+        self.rng = rng or ArrayRNG(backend=self.backend_str)
 
     def draw_initial_samples(self, n_samples: int) -> Samples:
         """Draw initial samples from the prior flow."""
@@ -96,7 +97,7 @@ class MCMCSampler(Sampler):
             + samples.log_prior
             + samples.array_to_namespace(log_abs_det_jacobian)
         )
-        return to_numpy(log_prob).flatten()
+        return log_prob.flatten()
 
     def default_mcmc_chain_file_checkpoint_callback(
         self, file_path: str | None
@@ -164,7 +165,16 @@ class MCMCSampler(Sampler):
         checkpoint_callback(state)
 
 
-class Emcee(MCMCSampler):
+class NumpyMCMCSampler(MCMCSampler):
+    """MCMCSampler that maps samples and log probabilities to NumPy arrays for
+    compatibility with numpy-only samplers
+    """
+
+    def log_prob(self, z):
+        return to_numpy(super().log_prob(z))
+
+
+class Emcee(NumpyMCMCSampler):
     @track_calls
     def sample(
         self,
@@ -246,12 +256,13 @@ class MiniPCN(MCMCSampler):
         checkpoint_file_path: str | None = None,
     ):
         from minipcn import Sampler
+        from orng import ArrayRNG
 
-        rng = rng or self.rng or np.random.default_rng()
+        rng = rng or self.rng or ArrayRNG(backend=self.backend_str)
         n_walkers = n_walkers or n_samples
         p0 = self.draw_initial_samples(n_walkers).x
 
-        z0 = to_numpy(self.preconditioning_transform.fit(p0))
+        z0 = self.preconditioning_transform.fit(p0)
 
         self.sampler = Sampler(
             log_prob_fn=self.log_prob,
@@ -259,6 +270,7 @@ class MiniPCN(MCMCSampler):
             rng=rng,
             dims=self.dims,
             target_acceptance_rate=target_acceptance_rate,
+            xp=self.xp,
         )
 
         chain, history = self.sampler.sample(z0, n_steps=n_steps)
