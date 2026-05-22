@@ -12,6 +12,7 @@ from ...utils import (
     asarray,
     determine_backend_name,
     effective_sample_size,
+    to_numpy,
     track_calls,
     update_at_indices,
 )
@@ -518,6 +519,9 @@ class SMCSampler(MCMCSampler):
 
 
 class NumpySMCSampler(SMCSampler):
+    """SMCSampler that maps samples and log probabilities to NumPy arrays for
+    compatibility with numpy-only samplers"""
+
     def __init__(
         self,
         log_likelihood,
@@ -543,3 +547,7 @@ class NumpySMCSampler(SMCSampler):
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
+
+    def log_prob(self, z, beta=None):
+        log_prob = super().log_prob(z, beta=beta)
+        return to_numpy(log_prob)
