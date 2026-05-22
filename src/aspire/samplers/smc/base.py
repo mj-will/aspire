@@ -293,7 +293,7 @@ class SMCSampler(MCMCSampler):
         self.fit_preconditioning_transform(samples.x)
 
         if store_sample_history:
-            self.history.sample_history.append(samples)
+            self.history.sample_history.append(samples.to_numpy())
 
         if self.xp.isnan(samples.log_q).any():
             raise ValueError("Log proposal contains NaN values")
