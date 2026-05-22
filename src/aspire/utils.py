@@ -261,9 +261,11 @@ def to_numpy(x: Array, **kwargs) -> np.ndarray:
     kwargs : dict
         Additional keyword arguments to pass to numpy.asarray.
     """
+    if is_torch_array(x):
+        x = x.detach()
     try:
         return np.asarray(to_device(x, "cpu"), **kwargs)
-    except (ValueError, NotImplementedError):
+    except (ValueError, NotImplementedError, AttributeError):
         return np.asarray(x, **kwargs)
 
 
@@ -292,6 +294,9 @@ def asarray(x, xp: Any = None, dtype: Any | None = None, **kwargs) -> Array:
 
     if dtype is not None:
         kwargs["dtype"] = resolve_dtype(dtype, xp=xp)
+
+    if is_numpy_namespace(xp):
+        return to_numpy(x, **kwargs)
     return xp.asarray(x, **kwargs)
 
 
