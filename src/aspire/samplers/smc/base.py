@@ -3,6 +3,7 @@ import logging
 from typing import Any, Callable
 
 import array_api_compat.numpy as np
+import array_api_extra as xpx
 from orng import ArrayRNG
 
 from ...flows.base import Flow
@@ -14,7 +15,6 @@ from ...utils import (
     effective_sample_size,
     to_numpy,
     track_calls,
-    update_at_indices,
 )
 from ..mcmc import MCMCSampler
 
@@ -483,9 +483,7 @@ class SMCSampler(MCMCSampler):
             beta=beta
         ).flatten() + samples.array_to_namespace(log_abs_det_jacobian)
 
-        log_prob = update_at_indices(
-            log_prob, self.xp.isnan(log_prob), -self.xp.inf
-        )
+        log_prob = xpx.at(log_prob, self.xp.isnan(log_prob)).set(-self.xp.inf)
         return log_prob
 
     def build_checkpoint_state(

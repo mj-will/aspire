@@ -1,9 +1,10 @@
 import math
 
+import array_api_extra as xpx
 import pytest
 
 from aspire import transforms
-from aspire.utils import AspireFile, copy_array, update_at_indices
+from aspire.utils import AspireFile, copy_array
 
 
 def _make_array(xp, data, dtype):
@@ -270,14 +271,9 @@ def test_composite_transform_forward_inverse_roundtrip(xp, dtype):
     x_inv, inv_log_j = transform.inverse(y)
 
     x_exp = copy_array(x)
-    print(x_exp)
-    print((x_exp[:, 0] + 3) % 6 - 3)
-    x_exp = update_at_indices(
-        x_exp,
-        (slice(None), 0),
+    x_exp = xpx.at(x_exp, (slice(None), 0)).set(
         ((x_exp[:, 0] + 3) % 6) - 3,
     )  # Wrap x0 to [-3, 3]
-    print(x_exp)
 
     assert x.shape == y.shape
     assert xp.allclose(x_inv, x_exp, atol=1e-5)
