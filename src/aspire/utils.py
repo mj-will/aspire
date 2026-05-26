@@ -219,13 +219,16 @@ def logit(x: Array, eps: float | None = None) -> tuple[Array, Array]:
     return y, log_j
 
 
-def sigmoid(x: Array) -> tuple[Array, Array]:
+def sigmoid(x: Array, eps: float | None = None) -> tuple[Array, Array]:
     """Sigmoid function that also returns log Jacobian determinant.
 
     Parameters
     ----------
     x : float or ndarray
         Array of values
+    eps : float, optional
+        Epsilon value used to clamp inputs to [eps, 1 - eps]. If None, then
+        inputs are not clamped.
 
     Returns
     -------
@@ -236,6 +239,8 @@ def sigmoid(x: Array) -> tuple[Array, Array]:
     """
     xp = array_namespace(x)
     x = xp.divide(1, 1 + xp.exp(-x))
+    if eps:
+        x = xp.clip(x, eps, 1 - eps)
     log_j = (xp.log(x) + xp.log1p(-x)).sum(-1)
     return x, log_j
 
@@ -262,9 +267,11 @@ def to_numpy(x: Array, **kwargs) -> np.ndarray:
     kwargs : dict
         Additional keyword arguments to pass to numpy.asarray.
     """
+    if is_torch_array(x):
+        x = x.detach()
     try:
         return np.asarray(to_device(x, "cpu"), **kwargs)
-    except (ValueError, NotImplementedError):
+    except (ValueError, NotImplementedError, AttributeError):
         return np.asarray(x, **kwargs)
 
 
@@ -283,16 +290,28 @@ def asarray(x, xp: Any = None, dtype: Any | None = None, **kwargs) -> Array:
     kwargs : dict
         Additional keyword arguments to pass to xp.asarray.
     """
+    if dtype is not None:
+        kwargs["dtype"] = resolve_dtype(dtype, xp=xp)
     # Handle DLPack conversion from JAX to PyTorch to avoid shape issues when
     # passing JAX arrays directly to torch.asarray.
     if is_jax_array(x) and is_torch_namespace(xp):
         tensor = xp.utils.dlpack.from_dlpack(x)
         if dtype is not None:
-            tensor = tensor.to(resolve_dtype(dtype, xp=xp))
+            tensor = tensor.to(kwargs["dtype"])
         return tensor
 
-    if dtype is not None:
-        kwargs["dtype"] = resolve_dtype(dtype, xp=xp)
+    # Handle DLPack conversion from PyTorch to JAX to avoid issues with
+    # detaching tensors
+    if is_torch_array(x) and is_jax_namespace(xp):
+        import jax.dlpack
+
+        arr = jax.dlpack.from_dlpack(x.detach())
+        if dtype is not None:
+            arr = arr.astype(kwargs["dtype"])
+        return arr
+
+    if is_numpy_namespace(xp):
+        return to_numpy(x, **kwargs)
     return xp.asarray(x, **kwargs)
 
 

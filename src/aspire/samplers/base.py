@@ -6,7 +6,13 @@ from typing import Any, Callable
 from ..flows.base import Flow
 from ..samples import Samples
 from ..transforms import IdentityTransform
-from ..utils import AspireFile, asarray, dump_state, track_calls
+from ..utils import (
+    AspireFile,
+    asarray,
+    determine_backend_name,
+    dump_state,
+    track_calls,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +50,10 @@ class Sampler:
     ):
         self.prior_flow = prior_flow
         self._log_likelihood = log_likelihood
-        self.log_prior = log_prior
+        self._log_prior = log_prior
         self.dims = dims
         self.xp = xp
+        self.backend_str = determine_backend_name(xp=self.xp)
         self.dtype = dtype
         self.parameters = parameters
         self.history = None
@@ -78,6 +85,10 @@ class Sampler:
         """
         self.n_likelihood_evaluations += len(samples)
         return self._log_likelihood(samples)
+
+    def log_prior(self, samples: Samples) -> Samples:
+        """Computes the log prior of the samples."""
+        return self._log_prior(samples)
 
     def config_dict(
         self,

@@ -595,7 +595,7 @@ class LogitTransform(BoundedTransform):
         return y, log_abs_det_jacobian
 
     def inverse(self, y: Array) -> tuple[Array, Array]:
-        x, log_abs_det_jacobian = sigmoid(y)
+        x, log_abs_det_jacobian = sigmoid(y, eps=self.eps)
         x, log_j_unit = self.from_unit_interval(x)
         log_abs_det_jacobian = log_abs_det_jacobian + log_j_unit
         return x, log_abs_det_jacobian

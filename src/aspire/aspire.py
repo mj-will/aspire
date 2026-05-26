@@ -290,7 +290,18 @@ class Aspire:
         elif sampler_type == "blackjax_smc":
             from .samplers.smc.blackjax import BlackJAXSMC as SamplerClass
         else:
-            raise ValueError(f"Unknown sampler type: {sampler_type}")
+            from importlib.metadata import entry_points
+
+            # Fetch any custom sampler registered via an entry point in the
+            # aspire.samplers group
+            entry_points_dict = {
+                ep.name: ep for ep in entry_points(group="aspire.samplers")
+            }
+
+            if sampler_type in entry_points_dict:
+                SamplerClass = entry_points_dict[sampler_type].load()
+            else:
+                raise ValueError(f"Unknown sampler type: {sampler_type}")
         return SamplerClass
 
     def init_sampler(
@@ -371,7 +382,7 @@ class Aspire:
 
     def sample_posterior(
         self,
-        n_samples: int = 1000,
+        n_samples: int | None = None,
         sampler: str = "importance",
         xp: Any = None,
         return_history: bool = False,
@@ -403,8 +414,9 @@ class Aspire:
 
         Parameters
         ----------
-        n_samples : int
-            The number of sample to draw.
+        n_samples : int | None
+            The number of sample to draw. If None, the behavior will depend on
+            the sampler.
         sampler: str
             Sampling algorithm to use for drawing the posterior samples.
         xp: Any

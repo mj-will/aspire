@@ -4,13 +4,16 @@ from typing import Any, Callable
 
 import array_api_compat.numpy as np
 import array_api_extra as xpx
+from orng import ArrayRNG
 
 from ...flows.base import Flow
 from ...history import SMCHistory
 from ...samples import SMCSamples
 from ...utils import (
     asarray,
+    determine_backend_name,
     effective_sample_size,
+    to_numpy,
     track_calls,
 )
 from ..mcmc import MCMCSampler
@@ -19,7 +22,29 @@ logger = logging.getLogger(__name__)
 
 
 class SMCSampler(MCMCSampler):
-    """Base class for Sequential Monte Carlo samplers."""
+    """Base class for Sequential Monte Carlo samplers.
+
+    Parameters
+    ----------
+    log_likelihood : Callable
+        The log likelihood function.
+    log_prior : Callable
+        The log prior function.
+    dims : int
+        The number of dimensions.
+    prior_flow : Flow
+        The prior flow.
+    xp : Callable
+        The array API backend.
+    dtype : Any | str | None, optional
+        The data type for the samples, by default None.
+    parameters : list[str] | None, optional
+        The parameter names, by default None.
+    rng : np.random.Generator | ArrayRNG | None, optional
+        The random number generator, by default None.
+    preconditioning_transform : Callable | None, optional
+        The preconditioning transform, by default None.
+    """
 
     def __init__(
         self,
@@ -30,7 +55,7 @@ class SMCSampler(MCMCSampler):
         xp: Callable,
         dtype: Any | str | None = None,
         parameters: list[str] | None = None,
-        rng: np.random.Generator | None = None,
+        rng: np.random.Generator | ArrayRNG | None = None,
         preconditioning_transform: Callable | None = None,
     ):
         super().__init__(
@@ -43,7 +68,7 @@ class SMCSampler(MCMCSampler):
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
-        self.rng = rng or np.random.default_rng()
+        self.rng = rng or ArrayRNG(determine_backend_name(xp=xp))
         self._adaptive_target_efficiency = False
 
     @property
@@ -268,7 +293,7 @@ class SMCSampler(MCMCSampler):
         self.fit_preconditioning_transform(samples.x)
 
         if store_sample_history:
-            self.history.sample_history.append(samples)
+            self.history.sample_history.append(samples.to_numpy())
 
         if self.xp.isnan(samples.log_q).any():
             raise ValueError("Log proposal contains NaN values")
@@ -353,11 +378,11 @@ class SMCSampler(MCMCSampler):
                     beta_tolerance=beta_tolerance,
                 )
                 self.history.eff_target.append(
-                    self.current_target_efficiency(beta)
+                    float(self.current_target_efficiency(beta))
                 )
 
                 logger.info(f"it {iterations} - beta: {beta}")
-                self.history.beta.append(beta)
+                self.history.beta.append(float(beta))
 
                 ess = effective_sample_size(samples.log_weights(beta))
                 eff = ess / len(samples)
@@ -365,20 +390,22 @@ class SMCSampler(MCMCSampler):
                     logger.warning(
                         f"it {iterations} - Low sample efficiency: {eff:.2f}"
                     )
-                self.history.ess.append(ess)
+                self.history.ess.append(float(ess))
                 logger.info(
                     f"it {iterations} - ESS: {ess:.1f} ({eff:.2f} efficiency)"
                 )
                 self.history.ess_target.append(
-                    effective_sample_size(samples.log_weights(1.0))
+                    float(effective_sample_size(samples.log_weights(1.0)))
                 )
 
                 log_evidence_ratio = samples.log_evidence_ratio(beta)
                 log_evidence_ratio_var = samples.log_evidence_ratio_variance(
                     beta
                 )
-                self.history.log_norm_ratio.append(log_evidence_ratio)
-                self.history.log_norm_ratio_var.append(log_evidence_ratio_var)
+                self.history.log_norm_ratio.append(float(log_evidence_ratio))
+                self.history.log_norm_ratio_var.append(
+                    float(log_evidence_ratio_var)
+                )
                 logger.info(
                     f"it {iterations} - Log evidence ratio: {log_evidence_ratio:.2f} +/- {np.sqrt(log_evidence_ratio_var):.2f}"
                 )
@@ -387,7 +414,7 @@ class SMCSampler(MCMCSampler):
 
                 samples = self.mutate(samples, beta)
                 if store_sample_history:
-                    self.history.sample_history.append(samples)
+                    self.history.sample_history.append(samples.to_numpy())
                 maybe_checkpoint()
                 if beta == 1.0 or (
                     max_n_steps is not None and iterations >= max_n_steps
@@ -397,6 +424,18 @@ class SMCSampler(MCMCSampler):
         # If n_final_samples is specified and differs, perform additional mutation steps
         if n_final_samples is not None and len(samples.x) != n_final_samples:
             logger.info(f"Generating {n_final_samples} final samples")
+            if not samples.xp.isfinite(samples.log_likelihood).all():
+                logger.warning(
+                    "Final samples contain non-finite log likelihood values"
+                )
+            if not samples.xp.isfinite(samples.log_prior).all():
+                logger.warning(
+                    "Final samples contain non-finite log prior values"
+                )
+            if not samples.xp.isfinite(samples.log_q).all():
+                logger.warning(
+                    "Final samples contain non-finite log proposal values"
+                )
             final_samples = samples.resample(
                 1.0, n_samples=n_final_samples, rng=self.rng
             )
@@ -452,7 +491,7 @@ class SMCSampler(MCMCSampler):
     ) -> dict:
         """Prepare a serializable checkpoint payload for the sampler state."""
         return super().build_checkpoint_state(
-            samples,
+            samples.to_numpy(),
             iteration,
             meta={"beta": beta},
         )
@@ -492,6 +531,9 @@ class SMCSampler(MCMCSampler):
 
 
 class NumpySMCSampler(SMCSampler):
+    """SMCSampler that maps samples and log probabilities to NumPy arrays for
+    compatibility with numpy-only samplers"""
+
     def __init__(
         self,
         log_likelihood,
@@ -517,3 +559,7 @@ class NumpySMCSampler(SMCSampler):
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
+
+    def log_prob(self, z, beta=None):
+        log_prob = super().log_prob(z, beta=beta)
+        return to_numpy(log_prob)

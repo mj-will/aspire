@@ -5,7 +5,13 @@ import h5py
 import numpy as np
 import pytest
 
-from aspire.samples import BaseSamples, Samples, SMCSamples
+from aspire.samples import (
+    BaseSamples,
+    MCMCSamples,
+    PTMCMCSamples,
+    Samples,
+    SMCSamples,
+)
 
 
 def make_simple_samples(n=5, d=2, a=1.234):
@@ -310,6 +316,322 @@ def test_samples_to_dataframe():
     assert "log_w" in df.columns
     assert "log_likelihood" in df.columns
     assert len(df) == 4
+
+
+def test_mcmc_samples_from_chain(rng):
+    n_steps = 10
+    n_walkers = 5
+    dims = 3
+    chain = rng.normal(size=(n_steps, n_walkers, dims))
+    parameters = [f"p{i}" for i in range(dims)]
+    samples = MCMCSamples.from_chain(
+        chain=chain,
+        parameters=parameters,
+    )
+    assert isinstance(samples, MCMCSamples)
+    assert samples.x.shape == (n_steps * n_walkers, dims)
+    assert samples.chain.shape == (n_steps, n_walkers, dims)
+
+
+def test_ptmcmc_samples_from_chain(rng):
+    n_steps = 10
+    n_walkers = 5
+    dims = 3
+    n_temps = 4
+    chain = rng.normal(size=(n_temps, n_steps, n_walkers, dims))
+    parameters = [f"p{i}" for i in range(dims)]
+    samples = PTMCMCSamples.from_chain(
+        chain=chain,
+        parameters=parameters,
+    )
+    assert isinstance(samples, MCMCSamples)
+    assert samples.x.shape == (n_temps * n_steps * n_walkers, dims)
+    assert samples.chain.shape == (n_temps, n_steps, n_walkers, dims)
+    assert samples.cold_chain().x.shape == (n_steps * n_walkers, dims)
+
+
+@pytest.mark.parametrize("samples_cls", [MCMCSamples, PTMCMCSamples])
+def test_chain_samples_save_load_preserves_chain_shape(
+    samples_cls, rng, tmp_path
+):
+    dims = 2
+    if samples_cls is MCMCSamples:
+        chain = rng.normal(size=(7, 3, dims))
+        kwargs = {}
+    else:
+        chain = rng.normal(size=(4, 7, 3, dims))
+        kwargs = {"betas": np.array([1.0, 0.5, 0.2, 0.0])}
+
+    samples = samples_cls.from_chain(
+        chain=chain,
+        thin=2,
+        burn_in=1,
+        autocorrelation_time=np.ones(chain.shape[0]),
+        **kwargs,
+    )
+
+    with h5py.File(tmp_path / "chain_samples.h5", "w") as f:
+        samples.save(f, path="samples")
+    with h5py.File(tmp_path / "chain_samples.h5", "r") as f:
+        loaded = samples_cls.load(f, path="samples")
+
+    assert tuple(loaded.chain_shape) == tuple(samples.chain_shape)
+    assert loaded.chain.shape == chain.shape
+    if samples_cls is PTMCMCSamples:
+        assert np.allclose(loaded.betas, samples.betas)
+
+
+@pytest.mark.parametrize("samples_cls", [MCMCSamples, PTMCMCSamples])
+def test_chain_samples_post_process_shared_behavior(samples_cls, rng):
+    dims = 2
+    if samples_cls is MCMCSamples:
+        chain = rng.normal(size=(8, 3, dims))
+        values = rng.normal(size=(8, 3))
+        kwargs = {}
+    else:
+        chain = rng.normal(size=(4, 8, 3, dims))
+        values = rng.normal(size=(4, 8, 3))
+        kwargs = {"betas": np.array([1.0, 0.5, 0.2, 0.0])}
+
+    samples = samples_cls.from_chain(
+        chain=chain,
+        log_likelihood=values,
+        log_prior=values + 1.0,
+        log_q=values - 1.0,
+        thin=2,
+        burn_in=3,
+        autocorrelation_time=np.ones(chain.shape[0]),
+        **kwargs,
+    )
+
+    out = samples.post_process(burn_in=1, thin=2)
+    expected_chain = (
+        chain[1::2] if samples_cls is MCMCSamples else chain[:, 1::2]
+    )
+    expected_values = (
+        values[1::2] if samples_cls is MCMCSamples else values[:, 1::2]
+    )
+
+    assert isinstance(out, samples_cls)
+    assert out.chain.shape == expected_chain.shape
+    assert out.x.shape == (np.prod(expected_chain.shape[:-1]), dims)
+    assert np.allclose(out.log_likelihood, expected_values.reshape(-1))
+    assert out.thin == 4
+    assert out.burn_in == 4
+    assert np.allclose(out.autocorrelation_time, samples.autocorrelation_time)
+
+    if samples_cls is PTMCMCSamples:
+        assert np.allclose(out.betas, samples.betas)
+
+
+@pytest.mark.parametrize("samples_cls", [MCMCSamples, PTMCMCSamples])
+def test_chain_samples_post_process_noop_returns_self(samples_cls, rng):
+    dims = 2
+    if samples_cls is MCMCSamples:
+        chain = rng.normal(size=(5, 2, dims))
+        kwargs = {}
+    else:
+        chain = rng.normal(size=(3, 5, 2, dims))
+        kwargs = {"betas": np.array([1.0, 0.5, 0.0])}
+    samples = samples_cls.from_chain(chain=chain, **kwargs)
+
+    assert samples.post_process(burn_in=0, thin=1) is samples
+
+
+def test_mcmc_samples_getitem_preserves_metadata(rng):
+    dims = 2
+    chain = rng.normal(size=(7, 2, dims))
+    samples = MCMCSamples.from_chain(
+        chain=chain,
+        thin=3,
+        burn_in=5,
+        autocorrelation_time=np.ones(chain.shape[0]),
+    )
+    out = samples[:4]
+
+    assert isinstance(out, MCMCSamples)
+    assert out.chain_shape == (len(out.x),)
+    assert out.x.shape == (4, dims)
+    assert out.thin == samples.thin
+    assert out.burn_in == samples.burn_in
+    assert np.allclose(out.autocorrelation_time, samples.autocorrelation_time)
+
+
+def test_ptmcmc_getitem_raises_not_implemented(rng):
+    chain = rng.normal(size=(3, 7, 2, 2))
+    samples = PTMCMCSamples.from_chain(
+        chain=chain, betas=np.array([1.0, 0.5, 0.0])
+    )
+    with pytest.raises(NotImplementedError):
+        _ = samples[:4]
+
+
+def test_ptmcmc_subsample_shapes_and_metadata(rng):
+    n_temps, n_steps, n_walkers, dims = 4, 20, 3, 2
+    chain = rng.normal(size=(n_temps, n_steps, n_walkers, dims))
+    ll = rng.normal(size=(n_temps, n_steps, n_walkers))
+    lp = rng.normal(size=(n_temps, n_steps, n_walkers))
+    betas = np.array([1.0, 0.5, 0.2, 0.0])
+    samples = PTMCMCSamples.from_chain(
+        chain=chain,
+        betas=betas,
+        log_likelihood=ll,
+        log_prior=lp,
+        thin=2,
+        burn_in=5,
+        autocorrelation_time=np.ones(n_temps),
+    )
+
+    n_sub = 10
+    out = samples.subsample(n_sub, rng=rng)
+
+    assert isinstance(out, PTMCMCSamples)
+    assert out.chain_shape == (n_temps, n_sub)
+    assert out.x.shape == (n_temps * n_sub, dims)
+    assert out.log_likelihood.shape == (n_temps * n_sub,)
+    assert out.log_prior.shape == (n_temps * n_sub,)
+    assert np.allclose(out.betas, betas)
+    assert out.thin == samples.thin
+    assert out.burn_in == samples.burn_in
+    assert np.allclose(out.autocorrelation_time, samples.autocorrelation_time)
+
+
+def test_ptmcmc_subsample_samples_are_from_original(rng):
+    n_temps, n_steps, dims = 3, 15, 2
+    chain = rng.normal(size=(n_temps, n_steps, dims))
+    betas = np.array([1.0, 0.5, 0.0])
+    samples = PTMCMCSamples.from_chain(chain=chain, betas=betas)
+
+    out = samples.subsample(5, rng=rng)
+
+    # Each subsampled row must appear in the original flat chain
+    original_x = samples.x
+    for row in out.x:
+        assert any(
+            np.allclose(row, original_x[i]) for i in range(len(original_x))
+        )
+
+
+def test_ptmcmc_subsample_no_replacement_within_temperature(rng):
+    n_temps, n_steps, dims = 2, 20, 1
+    chain = np.arange(n_temps * n_steps * dims, dtype=float).reshape(
+        n_temps, n_steps, dims
+    )
+    betas = np.array([1.0, 0.0])
+    samples = PTMCMCSamples.from_chain(chain=chain, betas=betas)
+
+    out = samples.subsample(10, rng=rng)
+    out_chain = out.chain  # (n_temps, 10, dims)
+
+    for t in range(n_temps):
+        rows = [out_chain[t, i, 0] for i in range(10)]
+        assert len(rows) == len(set(rows)), (
+            "Duplicate samples within a temperature"
+        )
+
+
+def test_ptmcmc_subsample_too_many_raises(rng):
+    chain = rng.normal(size=(3, 5, 2))
+    samples = PTMCMCSamples.from_chain(
+        chain=chain, betas=np.array([1.0, 0.5, 0.0])
+    )
+    with pytest.raises(ValueError, match="exceeds"):
+        samples.subsample(6, rng=rng)
+
+
+def test_ptmcmc_ti_matches_equations_35_to_37():
+    chain = np.zeros((3, 2, 2, 1), dtype=float)
+    betas = np.array([1.0, 0.5, 0.0], dtype=float)
+    logl = np.array(
+        [
+            [[1.0, 0.0], [2.0, -1.0]],  # beta=1.0
+            [[0.5, -0.5], [1.5, -1.5]],  # beta=0.5
+            [[0.0, -1.0], [1.0, -2.0]],  # beta=0.0
+        ],
+        dtype=float,
+    )
+    samples = PTMCMCSamples.from_chain(
+        chain=chain,
+        betas=betas,
+        log_likelihood=logl,
+    )
+
+    logz, err = samples.log_evidence_thermodynamic_integration(
+        burn_in_fraction=0.0
+    )
+
+    # Manual Eq. (35)-(37).
+    order = np.argsort(betas)
+    t = betas[order]
+    logl_flat = logl.reshape(3, -1)[order]
+    mean_logl = np.mean(logl_flat, axis=1)
+    expected_logz = np.trapezoid(mean_logl, t)
+    ti_per_sample = np.trapezoid(logl_flat, t, axis=0)
+    expected_err = math.sqrt(np.var(ti_per_sample) / len(ti_per_sample))
+
+    assert math.isclose(logz, expected_logz, rel_tol=1e-12, abs_tol=1e-12)
+    assert math.isclose(err, expected_err, rel_tol=1e-12, abs_tol=1e-12)
+
+
+def test_ptmcmc_stepping_stone_error_matches_formula():
+    # Three temperatures (including beta=0), two steps, two walkers.
+    chain = np.zeros((3, 2, 2, 1), dtype=float)
+    betas = np.array([1.0, 0.5, 0.0], dtype=float)
+    logl = np.array(
+        [
+            [[0.0, 0.0], [0.0, 0.0]],
+            [[1.0, 0.0], [2.0, -1.0]],
+            [[0.5, -0.5], [1.5, -1.0]],
+        ],
+        dtype=float,
+    )
+    samples = PTMCMCSamples.from_chain(
+        chain=chain,
+        betas=betas,
+        log_likelihood=logl,
+    )
+
+    logz, err = samples.log_evidence_stepping_stone(burn_in_fraction=0.0)
+
+    # Manual stepping-stone and error computation.
+    logl_flat = logl.reshape(3, -1)
+    expected_logz = 0.0
+    var = 0.0
+    n = logl_flat.shape[1]
+    for i in range(len(betas) - 1):
+        dbeta = betas[i] - betas[i + 1]
+        a = dbeta * logl_flat[i + 1]
+        expected_logz += np.log(np.mean(np.exp(a)))
+        ratio = np.exp(a) / np.mean(np.exp(a))
+        var += np.sum(ratio**2)
+    expected_log_err = math.sqrt(var / (n**2))
+
+    assert math.isclose(logz, expected_logz, rel_tol=1e-12, abs_tol=1e-12)
+    assert math.isclose(err, expected_log_err, rel_tol=1e-12, abs_tol=1e-12)
+
+
+def test_ptmcmc_stepping_stone_error_constant_logl_matches_formula():
+    chain = np.zeros((3, 2, 2, 1), dtype=float)
+    betas = np.array([1.0, 0.5, 0.0], dtype=float)
+    # Constant per temperature => exp(a_n)/r_j = 1 for all n.
+    logl = np.array(
+        [
+            [[1.0, 1.0], [1.0, 1.0]],
+            [[2.0, 2.0], [2.0, 2.0]],
+            [[3.0, 3.0], [3.0, 3.0]],
+        ],
+        dtype=float,
+    )
+    samples = PTMCMCSamples.from_chain(
+        chain=chain,
+        betas=betas,
+        log_likelihood=logl,
+    )
+
+    _, err = samples.log_evidence_stepping_stone(burn_in_fraction=0.0)
+    n = logl.reshape(3, -1).shape[1]
+    expected_err = math.sqrt((len(betas) - 1) / n)
+    assert math.isclose(err, expected_err, rel_tol=1e-12, abs_tol=1e-12)
 
 
 def test_smc_unnormalized_and_normalized_log_weights_and_ratio():
