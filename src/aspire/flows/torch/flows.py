@@ -111,6 +111,29 @@ class BaseTorchFlow(Flow):
 
 
 class ZukoFlow(BaseTorchFlow):
+    """Flow wrapper for flows from the Zuko library
+
+    Parameters
+    ----------
+    dims: int
+        Dimensionality of the data
+    flow_class: str or Callable
+        The flow class to use. Can be a string (e.g. "MAF", "CNF") or a
+        callable that returns an instance of a flow.
+    data_transform: BaseTransform, optional
+        A transform to apply to the data before fitting the flow. If None, no
+        transform is applied.
+    seed: int
+        Random seed for initializing the flow
+    device: str
+        Device to run the flow on (e.g. "cpu", "cuda")
+    dtype: torch.dtype, optional
+        Data type for the flow parameters. If None, uses the default torch
+        dtype.
+    **kwargs:
+        Additional keyword arguments to pass to the flow constructor.
+    """
+
     def __init__(
         self,
         dims,
@@ -153,7 +176,30 @@ class ZukoFlow(BaseTorchFlow):
         validation_fraction: float = 0.2,
         clip_grad: float | None = None,
         lr_annealing: bool = False,
+        patience: int | None = None,
     ):
+        """Fit the flow to samples using maximum likelihood estimation (forward
+        KL divergence).
+
+        Parameters
+        ----------
+        x: array-like
+            Samples to fi the flow to
+        n_epochs: int
+            Number of epochs to train for
+        lr: float
+            Learning rate for the optimizer
+        batch_size: int
+            Batch size for training
+        validation_fraction: float
+            Fraction of the data to use for validation
+        clip_grad: float | None
+            If not None, clip gradients to this value
+        lr_annealing: bool
+            Whether to use cosine annealing for the learning rate
+        patience: int | None
+            If not None, use early stopping with this patience (in epochs)
+        """
         from ...history import FlowHistory
 
         if not is_torch_array(x):
@@ -225,9 +271,10 @@ class ZukoFlow(BaseTorchFlow):
 
         best_val_loss = float("inf")
         best_flow_state = None
+        best_epoch = 0
 
         with tqdm.tqdm(range(n_epochs), desc="Epochs") as pbar:
-            for _ in pbar:
+            for epoch in pbar:
                 self.flow.train()
                 loss_epoch = 0.0
                 for (x_batch,) in dataset:
@@ -253,32 +300,86 @@ class ZukoFlow(BaseTorchFlow):
                 if avg_val_loss < best_val_loss:
                     best_val_loss = avg_val_loss
                     best_flow_state = copy.deepcopy(self.flow.state_dict())
+                    best_epoch = epoch
 
                 history.validation_loss.append(avg_val_loss)
                 pbar.set_postfix(
                     train_loss=f"{avg_train_loss:.4f}",
                     val_loss=f"{avg_val_loss:.4f}",
                 )
+
+                if patience is not None and epoch - best_epoch >= patience:
+                    logger.info(
+                        f"Early stopping triggered after {patience} epochs"
+                    )
+                    break
+
         if best_flow_state is not None:
             self.flow.load_state_dict(best_flow_state)
-            logger.info(f"Loaded best model with val loss {best_val_loss:.4f}")
+            logger.info(
+                f"Loaded best model from epoch {best_epoch} "
+                f"with val loss {best_val_loss:.4f}"
+            )
 
         self.flow.eval()
         return history
 
     def sample_and_log_prob(self, n_samples: int, xp=torch_api):
+        """Generate samples from the flow and compute their log probability.
+
+        Parameters        ----------
+        n_samples: int
+            Number of samples to generate
+        xp: Callable, optional
+            Array library to use for the output. Default is jax.numpy.
+
+        Returns
+        -------
+        x: array-like
+            Generated samples
+        log_prob: array-like
+            Log probability of the generated samples
+        """
         with torch.no_grad():
             x_prime, log_prob = self.flow().rsample_and_log_prob((n_samples,))
         x, log_abs_det_jacobian = self.inverse_rescale(x_prime)
         return xp.asarray(x), xp.asarray(log_prob - log_abs_det_jacobian)
 
     def sample(self, n_samples: int, xp=torch_api):
+        """Generate samples from the flow.
+
+        Parameters
+        ----------
+        n_samples: int
+            Number of samples to generate
+        xp: Callable, optional
+            Array library to use for the output. Default is torch.
+
+        Returns
+        -------
+        x: array-like
+            Generated samples
+        """
         with torch.no_grad():
             x_prime = self.flow().rsample((n_samples,))
         x = self.inverse_rescale(x_prime)[0]
         return xp.asarray(x)
 
     def log_prob(self, x, xp=torch_api):
+        """Compute the log probability of the samples.
+
+        Parameters
+        ----------
+        x: array-like
+            Samples to compute the log probability for
+        xp: Callable, optional
+            Array library to use for the output. Default is torch.
+
+        Returns
+        -------
+        log_prob: array-like
+            Log probability of the samples
+        """
         x = torch.as_tensor(x, dtype=self.dtype, device=self.device)
         x_prime, log_abs_det_jacobian = self.rescale(x)
         return xp.asarray(
@@ -286,6 +387,22 @@ class ZukoFlow(BaseTorchFlow):
         )
 
     def forward(self, x, xp=torch_api):
+        """Apply the flow transformation to the samples.
+
+        Parameters
+        ----------
+        x: array-like
+            Samples to transform
+        xp: Callable, optional
+            Array library to use for the output. Default is torch.
+
+        Returns
+        -------
+        z: array-like
+            Transformed samples
+        log_abs_det_jacobian: array-like
+            Log absolute determinant of the Jacobian of the transformation
+        """
         x = torch.as_tensor(x, dtype=self.dtype, device=self.device)
         x_prime, log_j_rescale = self.rescale(x)
         z, log_abs_det_jacobian = self._flow().transform.call_and_ladj(x_prime)
@@ -297,6 +414,22 @@ class ZukoFlow(BaseTorchFlow):
         return xp.asarray(z), xp.asarray(log_abs_det_jacobian + log_j_rescale)
 
     def inverse(self, z, xp=torch_api):
+        """Apply the inverse flow transformation to the samples.
+
+        Parameters
+        ----------
+        z: array-like
+            Samples to transform
+        xp: Callable, optional
+            Array library to use for the output. Default is torch.
+
+        Returns
+        -------
+        x: array-like
+            Transformed samples
+        log_abs_det_jacobian: array-like
+            Log absolute determinant of the Jacobian of the transformation
+        """
         z = torch.as_tensor(z, dtype=self.dtype, device=self.device)
         with torch.no_grad():
             x_prime, log_abs_det_jacobian = (
@@ -312,6 +445,12 @@ class ZukoFlow(BaseTorchFlow):
 
 
 class ZukoFlowMatching(ZukoFlow):
+    """Flow wrapper for training Zuko flows using flow matching.
+
+    Note that this flow is only compatible with CNF flows, as flow matching is
+    not implemented for discrete flows in Zuko.
+    """
+
     def __init__(
         self,
         dims,
