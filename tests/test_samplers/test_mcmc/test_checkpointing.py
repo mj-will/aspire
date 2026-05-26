@@ -91,8 +91,9 @@ def test_minipcn_mcmc_saves_chain_checkpoint(monkeypatch, tmp_path):
             rng,
             dims,
             target_acceptance_rate,
+            xp,
         ):
-            _ = (log_prob_fn, step_fn, rng, dims, target_acceptance_rate)
+            _ = (log_prob_fn, step_fn, rng, dims, target_acceptance_rate, xp)
 
         def sample(self, z0, n_steps=100):
             z0 = np.asarray(z0)

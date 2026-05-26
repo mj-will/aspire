@@ -24,7 +24,6 @@ from .utils import (
     logsumexp,
     recursively_save_to_h5_file,
     resolve_dtype,
-    safe_to_device,
     to_numpy,
 )
 
@@ -138,14 +137,7 @@ class BaseSamples:
 
     def array_to_namespace(self, x, dtype=None):
         """Convert an array to the same namespace as the samples"""
-        kwargs = {}
-        if dtype is not None:
-            kwargs["dtype"] = resolve_dtype(dtype, self.xp)
-        else:
-            kwargs["dtype"] = self.dtype
-        x = asarray(x, self.xp, **kwargs)
-        x = safe_to_device(x, self.device, self.xp)
-        return x
+        return asarray(x, self.xp, dtype=dtype, device=self.device)
 
     def to_dict(self, flat: bool = True, copy: bool = True):
         """Convert the samples to a dictionary.

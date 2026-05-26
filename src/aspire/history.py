@@ -96,11 +96,16 @@ class SMCHistory(History):
             The path within the HDF5 file to save the history. Default is
             "smc_history".
         """
-        dictionary = copy.deepcopy(self.__dict__)
-        sample_history = dictionary.pop("sample_history", [])
-        dictionary["__len_sample_history"] = len(sample_history)
+        # Exclude sample_history from the main dictionary since it is saved separately
+        exclude = {"sample_history"}
+        dictionary = {
+            k: copy.deepcopy(v)
+            for k, v in self.__dict__.items()
+            if k not in exclude
+        }
+        dictionary["__len_sample_history"] = len(self.sample_history)
         recursively_save_to_h5_file(h5_file, path, dictionary)
-        for i, samples in enumerate(sample_history):
+        for i, samples in enumerate(self.sample_history):
             samples.save(h5_file, path=f"{path}__sample_history/{i}")
 
     @classmethod

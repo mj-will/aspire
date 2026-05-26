@@ -12,6 +12,7 @@ from ...utils import (
     asarray,
     determine_backend_name,
     effective_sample_size,
+    to_numpy,
     track_calls,
     update_at_indices,
 )
@@ -292,7 +293,7 @@ class SMCSampler(MCMCSampler):
         self.fit_preconditioning_transform(samples.x)
 
         if store_sample_history:
-            self.history.sample_history.append(samples)
+            self.history.sample_history.append(samples.to_numpy())
 
         if self.xp.isnan(samples.log_q).any():
             raise ValueError("Log proposal contains NaN values")
@@ -377,11 +378,11 @@ class SMCSampler(MCMCSampler):
                     beta_tolerance=beta_tolerance,
                 )
                 self.history.eff_target.append(
-                    self.current_target_efficiency(beta)
+                    float(self.current_target_efficiency(beta))
                 )
 
                 logger.info(f"it {iterations} - beta: {beta}")
-                self.history.beta.append(beta)
+                self.history.beta.append(float(beta))
 
                 ess = effective_sample_size(samples.log_weights(beta))
                 eff = ess / len(samples)
@@ -389,20 +390,22 @@ class SMCSampler(MCMCSampler):
                     logger.warning(
                         f"it {iterations} - Low sample efficiency: {eff:.2f}"
                     )
-                self.history.ess.append(ess)
+                self.history.ess.append(float(ess))
                 logger.info(
                     f"it {iterations} - ESS: {ess:.1f} ({eff:.2f} efficiency)"
                 )
                 self.history.ess_target.append(
-                    effective_sample_size(samples.log_weights(1.0))
+                    float(effective_sample_size(samples.log_weights(1.0)))
                 )
 
                 log_evidence_ratio = samples.log_evidence_ratio(beta)
                 log_evidence_ratio_var = samples.log_evidence_ratio_variance(
                     beta
                 )
-                self.history.log_norm_ratio.append(log_evidence_ratio)
-                self.history.log_norm_ratio_var.append(log_evidence_ratio_var)
+                self.history.log_norm_ratio.append(float(log_evidence_ratio))
+                self.history.log_norm_ratio_var.append(
+                    float(log_evidence_ratio_var)
+                )
                 logger.info(
                     f"it {iterations} - Log evidence ratio: {log_evidence_ratio:.2f} +/- {np.sqrt(log_evidence_ratio_var):.2f}"
                 )
@@ -411,7 +414,7 @@ class SMCSampler(MCMCSampler):
 
                 samples = self.mutate(samples, beta)
                 if store_sample_history:
-                    self.history.sample_history.append(samples)
+                    self.history.sample_history.append(samples.to_numpy())
                 maybe_checkpoint()
                 if beta == 1.0 or (
                     max_n_steps is not None and iterations >= max_n_steps
@@ -478,7 +481,7 @@ class SMCSampler(MCMCSampler):
     ) -> dict:
         """Prepare a serializable checkpoint payload for the sampler state."""
         return super().build_checkpoint_state(
-            samples,
+            samples.to_numpy(),
             iteration,
             meta={"beta": beta},
         )
@@ -518,6 +521,9 @@ class SMCSampler(MCMCSampler):
 
 
 class NumpySMCSampler(SMCSampler):
+    """SMCSampler that maps samples and log probabilities to NumPy arrays for
+    compatibility with numpy-only samplers"""
+
     def __init__(
         self,
         log_likelihood,
@@ -543,3 +549,7 @@ class NumpySMCSampler(SMCSampler):
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
+
+    def log_prob(self, z, beta=None):
+        log_prob = super().log_prob(z, beta=beta)
+        return to_numpy(log_prob)
