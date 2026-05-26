@@ -47,13 +47,31 @@ class MCMCSampler(Sampler):
         self.rng = rng or ArrayRNG(backend=self.backend_str)
 
     def draw_initial_samples(self, n_samples: int) -> Samples:
-        """Draw initial samples from the prior flow."""
+        """Draw initial samples from the prior flow.
+
+        Parameters
+        ----------
+        n_samples : int
+            The number of samples to draw.
+
+        Returns
+        -------
+        Samples
+            The drawn samples, with log probabilities, log prior, and log likelihood.
+        """
         # Flow may propose samples outside prior bounds, so we may need
         # to try multiple times to get enough valid samples.
         n_samples_drawn = 0
         samples = None
         while n_samples_drawn < n_samples:
             x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
+            if not self.prior_flow.xp.isfinite(log_q).all():
+                raise ValueError(
+                    "Proposal returned non-finite log probabilities. "
+                    "aspire assumes the proposal is a valid, normalized "
+                    "probability distribution and should therefore only "
+                    "return samples with finite log probabilities."
+                )
             new_samples = Samples(
                 x,
                 xp=self.xp,
@@ -64,7 +82,18 @@ class MCMCSampler(Sampler):
             new_samples.log_prior = new_samples.array_to_namespace(
                 self.log_prior(new_samples)
             )
-            valid = self.xp.isfinite(new_samples.log_prior)
+            new_samples.log_likelihood = new_samples.array_to_namespace(
+                self.log_likelihood(new_samples)
+            )
+            valid = self.xp.isfinite(new_samples.log_prior) & self.xp.isfinite(
+                new_samples.log_likelihood
+            )
+            if any(~valid):
+                logger.debug(
+                    f"Proposal returned {int(~valid.sum())} invalid samples "
+                    f"with non-finite log prior or log likelihood. "
+                    f"These samples will be discarded."
+                )
             n_valid = int(self.xp.sum(valid))
             if n_valid > 0:
                 if samples is None:
@@ -78,9 +107,6 @@ class MCMCSampler(Sampler):
         if n_samples_drawn > n_samples:
             samples = samples[:n_samples]
 
-        samples.log_likelihood = samples.array_to_namespace(
-            self.log_likelihood(samples)
-        )
         return samples
 
     def log_prob(self, z):

@@ -9,6 +9,8 @@ from aspire.utils import AspireFile
 
 
 class DummyPriorFlow:
+    xp = xp
+
     def sample_and_log_prob(self, n_samples: int):
         x = np.linspace(-1.0, 1.0, n_samples * 2).reshape(n_samples, 2)
         log_q = np.zeros(n_samples)
