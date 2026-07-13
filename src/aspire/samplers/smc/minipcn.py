@@ -91,7 +91,8 @@ class MiniPCNSMC(SMCSampler):
         log_prob_fn = partial(self.log_prob, beta=beta)
 
         kwargs = self.sampler_kwargs.copy()
-        n_steps = n_steps or kwargs.pop("n_steps")
+        n_steps_default = kwargs.pop("n_steps")
+        n_steps = n_steps or n_steps_default
         verbose = kwargs.pop("verbose")
 
         sampler = Sampler(
@@ -109,7 +110,7 @@ class MiniPCNSMC(SMCSampler):
         )
         chain, history = sampler.sample(
             z,
-            n_steps=n_steps or self.sampler_kwargs["n_steps"],
+            n_steps=n_steps,
             verbose=verbose,
         )
         x = self.preconditioning_transform.inverse(chain[-1])[0]
