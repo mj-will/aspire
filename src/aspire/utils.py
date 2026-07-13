@@ -58,6 +58,7 @@ def configure_logger(
     log_file: str | Path | None = None,
     additional_loggers: list[str] = None,
     include_aspire_loggers: bool = True,
+    stream: str | None = None,
 ) -> logging.Logger:
     """Configure the logger.
 
@@ -74,6 +75,9 @@ def configure_logger(
     include_aspire_loggers : bool, optional
         Whether to include all loggers that start with "aspire_" or "aspire-".
         Defaults to True.
+    stream : str, optional
+        The stream to use for the stream handler. Defaults to None, which uses
+        sys.stderr.
 
     Returns
     -------
@@ -82,7 +86,7 @@ def configure_logger(
     """
     logger = logging.getLogger("aspire")
     logger.setLevel(log_level)
-    ch = logging.StreamHandler()
+    ch = logging.StreamHandler(stream=stream)
     ch.setLevel(log_level)
     formatter = logging.Formatter(
         "%(asctime)s - aspire - %(levelname)s - %(message)s"
