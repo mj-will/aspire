@@ -72,8 +72,8 @@ with AspireFile(outdir / "aspire_result.h5", "w") as f:
     aspire.save_config(f, "aspire_config")
     samples.save(f, "posterior_samples")
     history.save(f, "flow_history")
-    # Save the flow
-    aspire.save_flow(f, "flow")
+    # Save the proposal
+    aspire.save_proposal(f, "proposal")
 
 fig = plot_comparison(
     initial_samples,

@@ -87,7 +87,9 @@ aspire = Aspire(
 # This will save a checkpoint after each SMC iteration, and resume from the last
 # so long as `resume=True` and the checkpoint file exists.
 with aspire.auto_checkpoint(
-    outdir / "aspire_smc_checkpoint.h5", every=1, resume=True
+    outdir / "aspire_smc_checkpoint.h5",
+    every=1,
+    resume=True,
 ):
     # Fit the normalizing flow to the initial samples
     fit_history = aspire.fit(initial_samples, n_epochs=30)
@@ -117,7 +119,7 @@ history.plot_sample_history(x_axis="log_likelihood").savefig(
 with AspireFile(outdir / "aspire_smc_results.h5", "w") as f:
     aspire.save_config(f, "aspire_config")
     aspire.save_sampler_config(f, "sampler_config")
-    aspire.save_flow(f, "flow")
+    aspire.save_proposal(f, "proposal")
     samples.save(f, "posterior_samples")
     history.save(f, "smc_history")
     fit_history.save(f, "fit_history")
