@@ -4,7 +4,7 @@ from typing import Any, Callable
 
 import array_api_compat.numpy as np
 import array_api_extra as xpx
-from orng import ArrayRNG
+from orng import RandomGenerator
 
 from ...flows.base import Flow
 from ...history import SMCHistory
@@ -46,7 +46,7 @@ class SMCSampler(MCMCSampler):
         The data type for the samples, by default None.
     parameters : list[str] | None, optional
         The parameter names, by default None.
-    rng : np.random.Generator | ArrayRNG | None, optional
+    rng : np.random.Generator | RandomGenerator | None, optional
         The random number generator, by default None.
     preconditioning_transform : Callable | None, optional
         The preconditioning transform, by default None.
@@ -61,7 +61,7 @@ class SMCSampler(MCMCSampler):
         xp: Callable,
         dtype: Any | str | None = None,
         parameters: list[str] | None = None,
-        rng: np.random.Generator | ArrayRNG | None = None,
+        rng: np.random.Generator | RandomGenerator | None = None,
         preconditioning_transform: Callable | None = None,
     ):
         super().__init__(
@@ -74,7 +74,7 @@ class SMCSampler(MCMCSampler):
             parameters=parameters,
             preconditioning_transform=preconditioning_transform,
         )
-        self.rng = rng or ArrayRNG(determine_backend_name(xp=xp))
+        self.rng = rng or RandomGenerator(determine_backend_name(xp=xp))
         self._adaptive_target_efficiency = False
 
     @property

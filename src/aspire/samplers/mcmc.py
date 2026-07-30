@@ -2,7 +2,7 @@ import logging
 from typing import Callable
 
 import numpy as np
-from orng import ArrayRNG
+from orng import RandomGenerator
 
 from ..samples import MCMCSamples, Samples, to_numpy
 from ..utils import AspireFile, track_calls
@@ -44,7 +44,7 @@ class MCMCSampler(Sampler):
             parameters,
             preconditioning_transform,
         )
-        self.rng = rng or ArrayRNG(backend=self.backend_str)
+        self.rng = rng or RandomGenerator(backend=self.backend_str)
 
     def draw_initial_samples(self, n_samples: int) -> Samples:
         """Draw initial samples from the prior flow.
@@ -282,9 +282,9 @@ class MiniPCN(MCMCSampler):
         checkpoint_file_path: str | None = None,
     ):
         from minipcn import Sampler
-        from orng import ArrayRNG
+        from orng import RandomGenerator
 
-        rng = rng or self.rng or ArrayRNG(backend=self.backend_str)
+        rng = rng or self.rng or RandomGenerator(backend=self.backend_str)
         n_walkers = n_walkers or n_samples
         p0 = self.draw_initial_samples(n_walkers).x
 

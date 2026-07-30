@@ -40,14 +40,14 @@ class MiniPCNSMC(SMCSampler):
         beta_tolerance: float = 1e-6,
         store_sample_history: bool = True,
     ) -> SMCSamples:
-        from orng import ArrayRNG
+        from orng import RandomGenerator
 
         self.sampler_kwargs = sampler_kwargs or {}
         self.sampler_kwargs.setdefault("n_steps", 5 * self.dims)
         self.sampler_kwargs.setdefault("target_acceptance_rate", 0.234)
         self.sampler_kwargs.setdefault("step_fn", "tpcn")
         self.sampler_kwargs.setdefault("verbose", True)
-        self.rng = rng or self.rng or ArrayRNG(backend=self.backend_str)
+        self.rng = rng or self.rng or RandomGenerator(backend=self.backend_str)
         return super().sample(
             n_samples,
             n_steps=n_steps,
