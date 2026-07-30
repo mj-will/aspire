@@ -1,12 +1,14 @@
 import copy
+import importlib
 import logging
 import multiprocessing as mp
 import pickle
 import warnings
+from collections.abc import Callable
 from contextlib import contextmanager
 from inspect import signature
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import h5py
 
@@ -62,9 +64,11 @@ class Aspire:
     xp : Callable | None
         The array backend to use. If None, the default backend will be
         used.
+    proposal : Proposal | None
+        The proposal distribution. If None, a flow proposal is created when
+        needed.
     flow : Flow | None
-        The flow object, if it already exists.
-        If None, a new flow will be created.
+        Deprecated alias for ``proposal``.
     flow_backend : str
         The backend to use for the flow. Options are 'zuko' or 'flowjax'.
     flow_matching : bool
@@ -233,6 +237,25 @@ class Aspire:
             **self.flow_kwargs,
         )
 
+    def init_proposal(self):
+        """Initialize and return the proposal.
+
+        If no proposal was supplied at construction, initialize the configured
+        normalizing-flow proposal. Existing proposals are returned unchanged.
+        """
+        if self._proposal is None:
+            self._init_flow()
+        return self._proposal
+
+    def init_flow(self):
+        """Deprecated: use :meth:`init_proposal` instead."""
+        warnings.warn(
+            "'init_flow' is deprecated; use 'init_proposal' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._init_flow()
+
     def fit(
         self,
         samples: Samples,
@@ -267,7 +290,7 @@ class Aspire:
         if self.parameters is None and samples.parameters is not None:
             self.parameters = samples.parameters.copy()
 
-        if getattr(self, "_skip_flow_training", False) and not overwrite:
+        if getattr(self, "_skip_proposal_training", False) and not overwrite:
             logger.info(
                 "Skipping proposal training because a checkpointed proposal "
                 "was loaded."
@@ -277,9 +300,17 @@ class Aspire:
         logger.info(f"Training with {len(samples.x)} samples")
 
         if self._proposal is None:
-            self._init_flow()
+            self.init_proposal()
 
-        history = self._proposal.fit(samples.x, **kwargs)
+        fit = getattr(self._proposal, "fit", None)
+        if callable(fit):
+            history = fit(samples.x, **kwargs)
+        else:
+            logger.info(
+                "Proposal %s does not implement fit; using it unchanged.",
+                type(self._proposal).__name__,
+            )
+            history = FlowHistory()
 
         defaults = getattr(self, "_checkpoint_defaults", None)
         if checkpoint_path is None and defaults:
@@ -287,6 +318,9 @@ class Aspire:
             checkpoint_save_config = defaults["save_config"]
         saved_config = (
             defaults.get("saved_config", False) if defaults else False
+        )
+        save_proposal = (
+            defaults.get("save_proposal", True) if defaults else True
         )
         if checkpoint_path is not None:
             with AspireFile(checkpoint_path, "a") as h5_file:
@@ -296,13 +330,14 @@ class Aspire:
                     self.save_config(h5_file, include_sampler_config=False)
                     if defaults is not None:
                         defaults["saved_config"] = True
-                # Save proposal only if missing or overwrite=True
-                if "proposal" in h5_file:
-                    if overwrite:
-                        del h5_file["proposal"]
+                if save_proposal:
+                    # Save proposal only if missing or overwrite=True
+                    if "proposal" in h5_file:
+                        if overwrite:
+                            del h5_file["proposal"]
+                            self.save_proposal(h5_file)
+                    else:
                         self.save_proposal(h5_file)
-                else:
-                    self.save_proposal(h5_file)
         return history
 
     def get_sampler_class(self, sampler_type: str) -> Callable:
@@ -534,6 +569,9 @@ class Aspire:
         saved_proposal = (
             defaults.get("saved_proposal", False) if defaults else False
         )
+        save_proposal = (
+            defaults.get("save_proposal", True) if defaults else True
+        )
         saved_config = (
             defaults.get("saved_config", False) if defaults else False
         )
@@ -552,6 +590,7 @@ class Aspire:
             with AspireFile(checkpoint_path, "a") as h5_file:
                 if (
                     self.proposal is not None
+                    and save_proposal
                     and not saved_proposal
                     and "proposal" not in h5_file
                 ):
@@ -590,6 +629,7 @@ class Aspire:
                         defaults["saved_config"] = True
                 if (
                     self.proposal is not None
+                    and save_proposal
                     and not saved_proposal
                     and "proposal" not in h5_file
                 ):
@@ -693,6 +733,8 @@ class Aspire:
         save_config: bool = True,
         save_proposal: bool = True,
         resume: bool = False,
+        *,
+        save_flow: bool | None = None,
     ):
         """
         Context manager to auto-save checkpoints, config, and proposal to a file.
@@ -713,7 +755,16 @@ class Aspire:
             Whether to save the proposal to the checkpoint file.
         resume : bool
             Whether to attempt to resume from an existing checkpoint at the path.
+        save_flow : bool | None
+            Deprecated alias for ``save_proposal``.
         """
+        if save_flow is not None:
+            warnings.warn(
+                "'save_flow' is deprecated; use 'save_proposal' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            save_proposal = save_flow
         prev = getattr(self, "_checkpoint_defaults", None)
         self._checkpoint_defaults = {
             "path": path,
@@ -729,7 +780,7 @@ class Aspire:
             "_resume_n_samples",
             "_resume_overrides",
             "_resume_sampler_config",
-            "_skip_flow_training",
+            "_skip_proposal_training",
         ]
         prev_resume_state = {
             attr: getattr(self, attr)
@@ -757,7 +808,7 @@ class Aspire:
             )
             if requested_n_samples is not None:
                 n_samples = requested_n_samples
-            self._load_flow_from_file(
+            self._load_proposal_from_file(
                 path,
                 flow_path="flow",
                 required=False,
@@ -769,7 +820,7 @@ class Aspire:
                 saved_sampler_type=saved_sampler_type,
                 n_samples=n_samples,
             )
-            self._skip_flow_training = self.proposal is not None
+            self._skip_proposal_training = self.proposal is not None
             if self.xp is None and checkpoint_xp is not None:
                 self.xp = checkpoint_xp
         try:
@@ -828,8 +879,11 @@ class Aspire:
             "xp": self.xp.__name__ if self.xp else None,
             "flow_backend": self.flow_backend,
             "flow_kwargs": self.flow_kwargs,
-            "proposal_config": self._proposal.config_dict()
-            if self._proposal
+            "proposal_config": {
+                "proposal_class": type(self._proposal).__name__,
+                "proposal_module": type(self._proposal).__module__,
+            }
+            if self._proposal is not None
             else None,
             "eps": self.eps,
         }
@@ -908,6 +962,41 @@ class Aspire:
         if self.proposal is None:
             raise ValueError("Proposal has not been initialized.")
         self.proposal.save(h5_file, path=path)
+        proposal_group = h5_file[path]
+        proposal_group.attrs["proposal_module"] = type(
+            self.proposal
+        ).__module__
+        proposal_group.attrs["proposal_qualname"] = type(
+            self.proposal
+        ).__qualname__
+
+    @staticmethod
+    def _proposal_class_from_group(h5_file: h5py.File, path: str):
+        """Resolve proposal class metadata saved in an HDF5 group."""
+        proposal_group = h5_file[path]
+        module_name = proposal_group.attrs.get("proposal_module")
+        qualname = proposal_group.attrs.get("proposal_qualname")
+        if not module_name or not qualname:
+            return None
+        module = importlib.import_module(str(module_name))
+        proposal_class = module
+        for name in str(qualname).split("."):
+            proposal_class = getattr(proposal_class, name)
+        return proposal_class
+
+    @staticmethod
+    def _validate_proposal_class(proposal_class) -> None:
+        required_methods = ("sample_and_log_prob", "log_prob", "load")
+        missing = [
+            method
+            for method in required_methods
+            if not callable(getattr(proposal_class, method, None))
+        ]
+        if missing:
+            raise ValueError(
+                "proposal_class must implement "
+                f"{', '.join(required_methods)}; missing {', '.join(missing)}."
+            )
 
     def load_proposal(
         self, h5_file: h5py.File, path: str = "proposal", proposal_class=None
@@ -926,13 +1015,10 @@ class Aspire:
         proposal_class : type | None
             The class of the proposal to load. If None, the class is inferred from the saved data.
         """
-        if proposal_class is not None and not issubclass(
-            proposal_class, Proposal
-        ):
-            raise ValueError(
-                f"proposal_class must be a subclass of Proposal, got {proposal_class}"
-            )
+        if proposal_class is None:
+            proposal_class = self._proposal_class_from_group(h5_file, path)
         if proposal_class is not None:
+            self._validate_proposal_class(proposal_class)
             logger.debug(
                 f"Loading proposal of type {proposal_class} from {path}"
             )
@@ -983,7 +1069,7 @@ class Aspire:
             logger.debug(
                 "Proposal not initialized; initializing flow proposal."
             )
-            self._init_flow()
+            self.init_proposal()
         x, log_q = self._proposal.sample_and_log_prob(n_samples)
         samples = Samples(
             x=x,
@@ -1159,7 +1245,7 @@ class Aspire:
 
         return None
 
-    def _load_flow_from_file(
+    def _load_proposal_from_file(
         self,
         file_path: str,
         flow_path: str = "flow",
@@ -1168,9 +1254,7 @@ class Aspire:
         """Load a saved proposal, including legacy flow checkpoints."""
         with AspireFile(file_path, "r") as h5_file:
             if "proposal" in h5_file:
-                logger.info(
-                    f"Loading proposal from 'proposal' in {file_path}"
-                )
+                logger.info(f"Loading proposal from 'proposal' in {file_path}")
                 self.load_proposal(h5_file, path="proposal")
                 return True
             if flow_path in h5_file:
@@ -1233,10 +1317,19 @@ class Aspire:
         config_dict["log_likelihood"] = log_likelihood
         config_dict["log_prior"] = log_prior
 
-        config_dict.pop("proposal_config", None)
+        proposal_config = config_dict.pop("proposal_config", None)
+        if (
+            isinstance(proposal_config, dict)
+            and proposal_config.get("proposal_class") == "GaussianProposal"
+        ):
+            from .proposals import GaussianProposal
+
+            config_dict["proposal"] = GaussianProposal(
+                dims=int(proposal_config.get("dims", config_dict["dims"])),
+            )
         aspire = Aspire(**config_dict)
 
-        aspire._load_flow_from_file(
+        aspire._load_proposal_from_file(
             file_path,
             flow_path=flow_path,
             required=True,
