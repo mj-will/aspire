@@ -21,6 +21,7 @@ dependencies = [
     "array-api-extra",
     "wrapt",
     "h5py",
+    "orng",
 ]
 
 dynamic = ["version"]
@@ -42,7 +43,6 @@ torch = [
 ]
 minipcn = [
     "minipcn[array-api]>=0.2.0a3",
-    "orng",
 ]
 emcee = [
     "emcee",
