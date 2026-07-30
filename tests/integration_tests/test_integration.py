@@ -43,7 +43,7 @@ def test_integration_zuko(
     )
     with AspireFile(tmp_path / "test_integration_zuko.h5", "w") as h5_file:
         aspire.save_config(h5_file)
-        aspire.save_flow(h5_file)
+        aspire.save_proposal(h5_file)
         samples.save(h5_file, path="posterior_samples")
 
 
@@ -92,7 +92,7 @@ def test_integration_flowjax(
 
     with AspireFile(tmp_path / "test_integration_flowjax.h5", "w") as h5_file:
         aspire.save_config(h5_file)
-        aspire.save_flow(h5_file)
+        aspire.save_proposal(h5_file)
         posterior_samples.save(h5_file, path="posterior_samples")
 
 
@@ -116,7 +116,7 @@ def test_init_existing_flow(
     }
 
     aspire = Aspire(**aspire_kwargs)
-    aspire.init_flow()
+    aspire.init_proposal()
 
     saved_flow = aspire.flow
     new_aspire_obj = Aspire(**aspire_kwargs | {"flow": saved_flow})
