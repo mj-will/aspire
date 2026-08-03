@@ -1,7 +1,7 @@
 Installation
 ============
 
-``aspire`` targets Python 3.10+ and relies on ``numpy``, ``matplotlib``,
+``aspire`` targets Python 3.11+ and relies on ``numpy``, ``matplotlib``,
 ``array-api-compat`` and ``h5py`` for core functionality. Optional extras
 provide tighter integration with popular samplers and flow backends.
 
