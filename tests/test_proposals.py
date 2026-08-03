@@ -6,7 +6,7 @@ import pytest
 
 from aspire import Aspire, Samples
 from aspire.flows.base import Flow
-from aspire.history import FlowHistory
+from aspire.history import FitHistory
 from aspire.proposals import GaussianProposal, Proposal
 from aspire.utils import load_from_h5_file
 
@@ -95,7 +95,56 @@ def test_aspire_fit_leaves_non_trainable_proposal_unchanged():
     history = aspire.fit(Samples(np.array([[0.0], [1.0]])))
 
     assert aspire.proposal is proposal
-    assert isinstance(history, FlowHistory)
+    assert isinstance(history, FitHistory)
+
+
+def test_aspire_fit_returns_history_when_proposal_fit_returns_none():
+    proposal = GaussianProposal(dims=1)
+    aspire = Aspire(
+        log_likelihood=log_likelihood,
+        log_prior=log_prior,
+        dims=1,
+        proposal=proposal,
+    )
+
+    history = aspire.fit(Samples(np.array([[1.0], [2.0], [3.0]])))
+
+    assert isinstance(history, FitHistory)
+
+
+def test_sample_posterior_requires_initialized_proposal():
+    aspire = Aspire(
+        log_likelihood=log_likelihood,
+        log_prior=log_prior,
+        dims=1,
+    )
+
+    with pytest.raises(RuntimeError, match="before initializing the proposal"):
+        aspire.sample_posterior(1)
+
+
+def test_save_proposal_requires_save_method(tmp_path):
+    class MinimalProposal:
+        xp = np
+
+        def sample_and_log_prob(self, n_samples):
+            return np.zeros((n_samples, 1)), np.zeros(n_samples)
+
+        def log_prob(self, x):
+            return np.zeros(len(x))
+
+    aspire = Aspire(
+        log_likelihood=log_likelihood,
+        log_prior=log_prior,
+        dims=1,
+        proposal=MinimalProposal(),
+    )
+
+    with h5py.File(tmp_path / "proposal.h5", "w") as h5_file:
+        with pytest.raises(
+            ValueError, match="does not implement a 'save' method"
+        ):
+            aspire.save_proposal(h5_file)
 
 
 def test_gaussian_proposal_save_load_preserves_frozen(tmp_path):
