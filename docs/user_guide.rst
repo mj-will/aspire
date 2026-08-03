@@ -47,7 +47,7 @@ Proposals, flows, and transforms
 Aspire can work with any proposal that implements ``sample_and_log_prob`` and
 ``log_prob``. Pass an instance using the ``proposal`` argument. If no proposal
 is supplied, Aspire automatically creates a normalizing-flow proposal when it
-is first fitted or sampled. By default this is a ``zuko`` Masked Autoregressive
+is first fitted. By default this is a ``zuko`` Masked Autoregressive
 Flow on top of PyTorch. You can initialize it eagerly with
 :meth:`aspire.Aspire.init_proposal`.
 
