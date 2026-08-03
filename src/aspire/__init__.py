@@ -10,7 +10,7 @@ from .samples import Samples
 from .utils import enable_scipy_array_api
 
 try:
-    __version__ = version("aspire")
+    __version__ = version("aspire-inference")
 except PackageNotFoundError:
     __version__ = "unknown"
 
