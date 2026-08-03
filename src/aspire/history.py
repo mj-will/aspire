@@ -49,7 +49,12 @@ class History:
 
 
 @dataclass
-class FlowHistory(History):
+class FitHistory(History):
+    """Class for storing the history of a fit process."""
+
+
+@dataclass
+class FlowHistory(FitHistory):
     training_loss: list[float] = field(default_factory=list)
     validation_loss: list[float] = field(default_factory=list)
 

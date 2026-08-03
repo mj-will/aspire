@@ -1,4 +1,5 @@
 from aspire import Aspire
+from aspire.history import FlowHistory
 
 
 def test_resume_from_file_smc(
@@ -215,5 +216,6 @@ def test_auto_checkpoint_resume_skips_flow_training(
         history = resumed.fit(samples, n_epochs=10)
         resumed.flow.fit = original_fit
 
+        assert isinstance(history, FlowHistory)
         assert history.training_loss == []
         assert history.validation_loss == []

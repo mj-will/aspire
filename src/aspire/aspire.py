@@ -1,18 +1,21 @@
 import copy
+import importlib
 import logging
 import multiprocessing as mp
 import pickle
 import warnings
+from collections.abc import Callable
 from contextlib import contextmanager
 from inspect import signature
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import h5py
 
 from .flows import get_flow_wrapper
 from .flows.base import Flow
-from .history import FlowHistory, History
+from .history import FitHistory, FlowHistory
+from .proposals import Proposal
 from .samplers.base import Sampler
 from .samples import Samples
 from .transforms import (
@@ -61,9 +64,11 @@ class Aspire:
     xp : Callable | None
         The array backend to use. If None, the default backend will be
         used.
+    proposal : Proposal | None
+        The proposal distribution. If None, a flow proposal is created when
+        needed.
     flow : Flow | None
-        The flow object, if it already exists.
-        If None, a new flow will be created.
+        Deprecated alias for ``proposal``.
     flow_backend : str
         The backend to use for the flow. Options are 'zuko' or 'flowjax'.
     flow_matching : bool
@@ -90,6 +95,7 @@ class Aspire:
         device: str | None = None,
         xp: Callable | None = None,
         flow: Flow | None = None,
+        proposal: Proposal | None = None,
         flow_backend: str = "zuko",
         flow_matching: bool = False,
         eps: float = 1e-6,
@@ -113,18 +119,44 @@ class Aspire:
         self.xp = xp
         self.dtype = dtype
 
-        self._flow = flow
+        if flow is not None:
+            warnings.warn(
+                "The 'flow' argument is deprecated; "
+                "pass a Flow object as 'proposal' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if proposal is not None:
+                raise ValueError("Cannot specify both 'flow' and 'proposal'.")
+            proposal = flow
+
+        self._proposal = proposal
         self._sampler = None
 
     @property
-    def flow(self):
-        """The normalizing flow object."""
-        return self._flow
+    def proposal(self) -> Proposal | Flow | None:
+        """The proposal distribution."""
+        return self._proposal
+
+    @proposal.setter
+    def proposal(self, value):
+        self._proposal = value
+
+    @property
+    def flow(self) -> Flow | None:
+        """The proposal cast as a Flow, or None if a non-flow proposal is set."""
+        return self._proposal if isinstance(self._proposal, Flow) else None
 
     @flow.setter
     def flow(self, flow: Flow):
-        """Set the normalizing flow object."""
-        self._flow = flow
+        """Deprecated: assign to ``proposal`` instead."""
+        warnings.warn(
+            "Setting 'flow' directly is deprecated; "
+            "assign to 'proposal' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._proposal = flow
 
     @property
     def sampler(self) -> Sampler | None:
@@ -174,7 +206,7 @@ class Aspire:
             samples.compute_weights()
         return samples
 
-    def init_flow(self):
+    def _init_flow(self):
         FlowClass, xp = get_flow_wrapper(
             backend=self.flow_backend, flow_matching=self.flow_matching
         )
@@ -197,13 +229,32 @@ class Aspire:
 
         logger.info(f"Configuring {FlowClass} with kwargs: {self.flow_kwargs}")
 
-        self._flow = FlowClass(
+        self._proposal = FlowClass(
             dims=self.dims,
             device=self.device,
             data_transform=data_transform,
             dtype=self.dtype,
             **self.flow_kwargs,
         )
+
+    def init_proposal(self):
+        """Initialize and return the proposal.
+
+        If no proposal was supplied at construction, initialize the configured
+        normalizing-flow proposal. Existing proposals are returned unchanged.
+        """
+        if self._proposal is None:
+            self._init_flow()
+        return self._proposal
+
+    def init_flow(self):
+        """Deprecated: use :meth:`init_proposal` instead."""
+        warnings.warn(
+            "'init_flow' is deprecated; use 'init_proposal' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._init_flow()
 
     def fit(
         self,
@@ -212,21 +263,26 @@ class Aspire:
         checkpoint_save_config: bool = True,
         overwrite: bool = False,
         **kwargs,
-    ) -> History:
-        """Fit the normalizing flow to the provided samples.
+    ) -> FitHistory:
+        """Fit the proposal to the provided samples.
+
+        For flow-based proposals this trains the normalizing flow. For other
+        proposals (e.g. :class:`~aspire.proposals.GaussianProposal`) it fits
+        the proposal's parameters (e.g. mean and covariance).
 
         Parameters
         ----------
         samples : Samples
-            The samples to fit the flow to.
+            The samples to fit the proposal to.
         checkpoint_path : str | None
             Path to save the checkpoint. If None, no checkpoint is saved.
+            Only used when the proposal is a normalizing flow.
         checkpoint_save_config : bool
             Whether to save the Aspire configuration to the checkpoint.
         overwrite : bool
-            Whether to overwrite an existing flow in the checkpoint file.
+            Whether to overwrite an existing proposal in the checkpoint file.
         kwargs : dict
-            Keyword arguments to pass to the flow's fit method.
+            Keyword arguments to pass to the proposal's fit method.
         """
         if self.xp is None:
             self.xp = samples.xp
@@ -234,23 +290,49 @@ class Aspire:
         if self.parameters is None and samples.parameters is not None:
             self.parameters = samples.parameters.copy()
 
-        if self.flow is None:
-            self.init_flow()
-        elif getattr(self, "_skip_flow_training", False) and not overwrite:
+        if getattr(self, "_skip_proposal_training", False) and not overwrite:
             logger.info(
-                "Skipping flow training because a checkpointed flow was loaded."
+                "Skipping proposal training because a checkpointed proposal "
+                "was loaded."
             )
-            return FlowHistory()
-
+            if isinstance(self._proposal, Flow):
+                return FlowHistory()
+            return FitHistory()
         self.training_samples = samples
         logger.info(f"Training with {len(samples.x)} samples")
-        history = self.flow.fit(samples.x, **kwargs)
+
+        if self._proposal is None:
+            self.init_proposal()
+
+        fit = getattr(self._proposal, "fit", None)
+        if callable(fit):
+            history = fit(samples.x, **kwargs)
+            if history is None:
+                logger.debug(
+                    "Proposal %s fit method returned None; returning empty FitHistory.",
+                    type(self._proposal).__name__,
+                )
+                history = (
+                    FlowHistory()
+                    if isinstance(self._proposal, Flow)
+                    else FitHistory()
+                )
+        else:
+            logger.info(
+                "Proposal %s does not implement fit; using it unchanged.",
+                type(self._proposal).__name__,
+            )
+            history = FitHistory()
+
         defaults = getattr(self, "_checkpoint_defaults", None)
         if checkpoint_path is None and defaults:
             checkpoint_path = defaults["path"]
             checkpoint_save_config = defaults["save_config"]
         saved_config = (
             defaults.get("saved_config", False) if defaults else False
+        )
+        save_proposal = (
+            defaults.get("save_proposal", True) if defaults else True
         )
         if checkpoint_path is not None:
             with AspireFile(checkpoint_path, "a") as h5_file:
@@ -260,13 +342,14 @@ class Aspire:
                     self.save_config(h5_file, include_sampler_config=False)
                     if defaults is not None:
                         defaults["saved_config"] = True
-                # Save flow only if missing or overwrite=True
-                if "flow" in h5_file:
-                    if overwrite:
-                        del h5_file["flow"]
-                        self.save_flow(h5_file)
-                else:
-                    self.save_flow(h5_file)
+                if save_proposal:
+                    # Save proposal only if missing or overwrite=True
+                    if "proposal" in h5_file:
+                        if overwrite:
+                            del h5_file["proposal"]
+                            self.save_proposal(h5_file)
+                    else:
+                        self.save_proposal(h5_file)
         return history
 
     def get_sampler_class(self, sampler_type: str) -> Callable:
@@ -327,6 +410,9 @@ class Aspire:
         """
         SamplerClass = self.get_sampler_class(sampler_type)
 
+        if self.xp is None and self._proposal is not None:
+            self.xp = getattr(self._proposal, "xp", None)
+
         if sampler_type != "importance" and preconditioning is None:
             preconditioning = "default"
 
@@ -371,7 +457,7 @@ class Aspire:
             log_likelihood=self.log_likelihood,
             log_prior=self.log_prior,
             dims=self.dims,
-            prior_flow=self.flow,
+            proposal=self.proposal,
             xp=self.xp,
             dtype=self.dtype,
             preconditioning_transform=transform,
@@ -448,6 +534,11 @@ class Aspire:
         samples : Samples
             Samples object contain samples and their corresponding weights.
         """
+        if self.proposal is None:
+            raise RuntimeError(
+                "Cannot sample posterior before initializing the proposal."
+            )
+
         if (
             sampler == "importance"
             and hasattr(self, "_resume_sampler_type")
@@ -492,7 +583,12 @@ class Aspire:
             checkpoint_path = defaults["path"]
             checkpoint_every = defaults["every"]
             checkpoint_save_config = defaults["save_config"]
-        saved_flow = defaults.get("saved_flow", False) if defaults else False
+        saved_proposal = (
+            defaults.get("saved_proposal", False) if defaults else False
+        )
+        save_proposal = (
+            defaults.get("save_proposal", True) if defaults else True
+        )
         saved_config = (
             defaults.get("saved_config", False) if defaults else False
         )
@@ -510,14 +606,15 @@ class Aspire:
                 kwargs.setdefault("checkpoint_every", checkpoint_every)
             with AspireFile(checkpoint_path, "a") as h5_file:
                 if (
-                    self.flow is not None
-                    and not saved_flow
-                    and "flow" not in h5_file
+                    self.proposal is not None
+                    and save_proposal
+                    and not saved_proposal
+                    and "proposal" not in h5_file
                 ):
-                    self.save_flow(h5_file)
-                    saved_flow = True
+                    self.save_proposal(h5_file)
+                    saved_proposal = True
                     if defaults is not None:
-                        defaults["saved_flow"] = True
+                        defaults["saved_proposal"] = True
 
         samples = self._sampler.sample(n_samples, **kwargs)
         self._last_sample_posterior_kwargs = {
@@ -548,13 +645,14 @@ class Aspire:
                     if defaults is not None:
                         defaults["saved_config"] = True
                 if (
-                    self.flow is not None
-                    and not saved_flow
-                    and "flow" not in h5_file
+                    self.proposal is not None
+                    and save_proposal
+                    and not saved_proposal
+                    and "proposal" not in h5_file
                 ):
-                    self.save_flow(h5_file)
+                    self.save_proposal(h5_file)
                     if defaults is not None:
-                        defaults["saved_flow"] = True
+                        defaults["saved_proposal"] = True
         if xp is not None:
             samples = samples.to_namespace(xp)
         samples.parameters = self.parameters
@@ -638,9 +736,9 @@ class Aspire:
             "path": file_path,
             "every": 1,
             "save_config": False,
-            "save_flow": False,
+            "save_proposal": False,
             "saved_config": False,
-            "saved_flow": False,
+            "saved_proposal": False,
         }
         return aspire
 
@@ -650,15 +748,17 @@ class Aspire:
         path: str,
         every: int = 1,
         save_config: bool = True,
-        save_flow: bool = True,
+        save_proposal: bool = True,
         resume: bool = False,
+        *,
+        save_flow: bool | None = None,
     ):
         """
-        Context manager to auto-save checkpoints, config, and flow to a file.
+        Context manager to auto-save checkpoints, config, and proposal to a file.
 
         Within the context, sample_posterior will default to writing checkpoints
-        to the given path with the specified frequency, and will append config/flow
-        after sampling.
+        to the given path with the specified frequency, and will append config
+        and proposal after sampling.
 
         Parameters
         ----------
@@ -668,19 +768,28 @@ class Aspire:
             Frequency (in number of sampler iterations) to save the checkpoint.
         save_config : bool
             Whether to save the Aspire configuration to the checkpoint file.
-        save_flow : bool
-            Whether to save the flow to the checkpoint file.
+        save_proposal : bool
+            Whether to save the proposal to the checkpoint file.
         resume : bool
             Whether to attempt to resume from an existing checkpoint at the path.
+        save_flow : bool | None
+            Deprecated alias for ``save_proposal``.
         """
+        if save_flow is not None:
+            warnings.warn(
+                "'save_flow' is deprecated; use 'save_proposal' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            save_proposal = save_flow
         prev = getattr(self, "_checkpoint_defaults", None)
         self._checkpoint_defaults = {
             "path": path,
             "every": every,
             "save_config": save_config,
-            "save_flow": save_flow,
+            "save_proposal": save_proposal,
             "saved_config": False,
-            "saved_flow": False,
+            "saved_proposal": False,
         }
         resume_attrs = [
             "_resume_from_default",
@@ -688,7 +797,7 @@ class Aspire:
             "_resume_n_samples",
             "_resume_overrides",
             "_resume_sampler_config",
-            "_skip_flow_training",
+            "_skip_proposal_training",
         ]
         prev_resume_state = {
             attr: getattr(self, attr)
@@ -716,7 +825,7 @@ class Aspire:
             )
             if requested_n_samples is not None:
                 n_samples = requested_n_samples
-            self._load_flow_from_file(
+            self._load_proposal_from_file(
                 path,
                 flow_path="flow",
                 required=False,
@@ -728,7 +837,7 @@ class Aspire:
                 saved_sampler_type=saved_sampler_type,
                 n_samples=n_samples,
             )
-            self._skip_flow_training = self.flow is not None
+            self._skip_proposal_training = self.proposal is not None
             if self.xp is None and checkpoint_xp is not None:
                 self.xp = checkpoint_xp
         try:
@@ -787,6 +896,12 @@ class Aspire:
             "xp": self.xp.__name__ if self.xp else None,
             "flow_backend": self.flow_backend,
             "flow_kwargs": self.flow_kwargs,
+            "proposal_config": {
+                "proposal_class": type(self._proposal).__name__,
+                "proposal_module": type(self._proposal).__module__,
+            }
+            if self._proposal is not None
+            else None,
             "eps": self.eps,
         }
         if include_sampler_config:
@@ -851,35 +966,112 @@ class Aspire:
             config,
         )
 
-    def save_flow(self, h5_file: h5py.File, path="flow") -> None:
-        """Save the flow to an HDF5 file.
+    def save_proposal(self, h5_file: h5py.File, path="proposal") -> None:
+        """Save the proposal to an HDF5 file.
 
         Parameters
         ----------
         h5_file : h5py.File
-            The HDF5 file to save the flow to.
+            The HDF5 file to save the proposal to.
         path : str
-            The path in the HDF5 file to save the flow to.
+            The path in the HDF5 file to save the proposal to.
         """
-        if self.flow is None:
-            raise ValueError("Flow has not been initialized.")
-        self.flow.save(h5_file, path=path)
+        if self.proposal is None:
+            raise ValueError("Proposal has not been initialized.")
+        if not hasattr(self.proposal, "save"):
+            raise ValueError(
+                f"Proposal of type {type(self.proposal)} does not implement a 'save' method."
+            )
+        self.proposal.save(h5_file, path=path)
+        proposal_group = h5_file[path]
+        proposal_group.attrs["proposal_module"] = type(
+            self.proposal
+        ).__module__
+        proposal_group.attrs["proposal_qualname"] = type(
+            self.proposal
+        ).__qualname__
+
+    @staticmethod
+    def _proposal_class_from_group(h5_file: h5py.File, path: str):
+        """Resolve proposal class metadata saved in an HDF5 group."""
+        proposal_group = h5_file[path]
+        module_name = proposal_group.attrs.get("proposal_module")
+        qualname = proposal_group.attrs.get("proposal_qualname")
+        if not module_name or not qualname:
+            return None
+        module = importlib.import_module(str(module_name))
+        proposal_class = module
+        for name in str(qualname).split("."):
+            proposal_class = getattr(proposal_class, name)
+        return proposal_class
+
+    @staticmethod
+    def _validate_proposal_class(proposal_class) -> None:
+        required_methods = ("sample_and_log_prob", "log_prob", "load")
+        missing = [
+            method
+            for method in required_methods
+            if not callable(getattr(proposal_class, method, None))
+        ]
+        if missing:
+            raise ValueError(
+                "proposal_class must implement "
+                f"{', '.join(required_methods)}; missing {', '.join(missing)}."
+            )
+
+    def load_proposal(
+        self, h5_file: h5py.File, path: str = "proposal", proposal_class=None
+    ) -> None:
+        """Load the proposal from an HDF5 file.
+
+        For flow-based proposals the flow is reconstructed from its saved
+        weights. For other proposal types the class must match what was saved.
+
+        Parameters
+        ----------
+        h5_file : h5py.File
+            The HDF5 file to load the proposal from.
+        path : str
+            The path in the HDF5 file to load the proposal from.
+        proposal_class : type | None
+            The class of the proposal to load. If None, the class is inferred from the saved data.
+        """
+        if proposal_class is None:
+            proposal_class = self._proposal_class_from_group(h5_file, path)
+        if proposal_class is not None:
+            self._validate_proposal_class(proposal_class)
+            logger.debug(
+                f"Loading proposal of type {proposal_class} from {path}"
+            )
+            self._proposal = proposal_class.load(h5_file, path=path)
+        elif self._proposal is not None and not isinstance(
+            self._proposal, Flow
+        ):
+            self._proposal = type(self._proposal).load(h5_file, path=path)
+        else:
+            FlowClass, _ = get_flow_wrapper(
+                backend=self.flow_backend, flow_matching=self.flow_matching
+            )
+            logger.debug(f"Loading flow of type {FlowClass} from {path}")
+            self._proposal = FlowClass.load(h5_file, path=path)
+
+    def save_flow(self, h5_file: h5py.File, path="flow") -> None:
+        """Deprecated: use :meth:`save_proposal` instead."""
+        warnings.warn(
+            "'save_flow' is deprecated; use 'save_proposal' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.save_proposal(h5_file, path=path)
 
     def load_flow(self, h5_file: h5py.File, path="flow") -> None:
-        """Load the flow from an HDF5 file.
-
-        Parameters
-        ----------
-        h5_file : h5py.File
-            The HDF5 file to load the flow from.
-        path : str
-            The path in the HDF5 file to load the flow from.
-        """
-        FlowClass, xp = get_flow_wrapper(
-            backend=self.flow_backend, flow_matching=self.flow_matching
+        """Deprecated: use :meth:`load_proposal` instead."""
+        warnings.warn(
+            "'load_flow' is deprecated; use 'load_proposal' instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        logger.debug(f"Loading flow of type {FlowClass} from {path}")
-        self._flow = FlowClass.load(h5_file, path=path)
+        self.load_proposal(h5_file, path=path)
 
     def save_config_to_json(self, filename: str) -> None:
         """Save the configuration to a JSON file."""
@@ -888,15 +1080,18 @@ class Aspire:
         with open(filename, "w") as f:
             json.dump(self.config_dict(), f, indent=4)
 
-    def sample_flow(self, n_samples: int = 1, xp=None) -> Samples:
-        """Sample from the flow directly.
+    def sample_proposal(self, n_samples: int = 1, xp=None) -> Samples:
+        """Sample from the proposal directly.
 
         Includes the data transform, but does not compute
         log likelihood or log prior.
         """
-        if self.flow is None:
-            self.init_flow()
-        x, log_q = self.flow.sample_and_log_prob(n_samples)
+        if self._proposal is None:
+            logger.debug(
+                "Proposal not initialized; initializing flow proposal."
+            )
+            self.init_proposal()
+        x, log_q = self._proposal.sample_and_log_prob(n_samples)
         samples = Samples(
             x=x,
             log_q=log_q,
@@ -905,6 +1100,15 @@ class Aspire:
             dtype=self.dtype,
         )
         return samples
+
+    def sample_flow(self, n_samples: int = 1, xp=None) -> Samples:
+        """Deprecated: use :meth:`sample_proposal` instead."""
+        warnings.warn(
+            "'sample_flow' is deprecated; use 'sample_proposal' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.sample_proposal(n_samples=n_samples, xp=xp)
 
     # --- Resume helpers ---
     @staticmethod
@@ -1062,24 +1266,33 @@ class Aspire:
 
         return None
 
-    def _load_flow_from_file(
+    def _load_proposal_from_file(
         self,
         file_path: str,
         flow_path: str = "flow",
         required: bool = True,
     ) -> bool:
-        """Load a saved flow from file onto the current Aspire instance."""
+        """Load a saved proposal, including legacy flow checkpoints."""
         with AspireFile(file_path, "r") as h5_file:
+            if "proposal" in h5_file:
+                logger.info(f"Loading proposal from 'proposal' in {file_path}")
+                self.load_proposal(h5_file, path="proposal")
+                return True
             if flow_path in h5_file:
-                logger.info(f"Loading flow from {flow_path} in {file_path}")
-                self.load_flow(h5_file, path=flow_path)
+                logger.info(
+                    f"Loading proposal from legacy path {flow_path} "
+                    f"in {file_path}"
+                )
+                self.load_proposal(h5_file, path=flow_path)
                 return True
         if required:
             raise ValueError(
-                f"Flow path '{flow_path}' not found in {file_path}"
+                f"No proposal found in {file_path} "
+                f"(tried 'proposal' and '{flow_path}')"
             )
         logger.warning(
-            "Flow not found at %s in %s; continuing without loading a flow.",
+            "Proposal not found at 'proposal' or %s in %s; continuing "
+            "without loading a proposal.",
             flow_path,
             file_path,
         )
@@ -1125,9 +1338,19 @@ class Aspire:
         config_dict["log_likelihood"] = log_likelihood
         config_dict["log_prior"] = log_prior
 
+        proposal_config = config_dict.pop("proposal_config", None)
+        if (
+            isinstance(proposal_config, dict)
+            and proposal_config.get("proposal_class") == "GaussianProposal"
+        ):
+            from .proposals import GaussianProposal
+
+            config_dict["proposal"] = GaussianProposal(
+                dims=int(proposal_config.get("dims", config_dict["dims"])),
+            )
         aspire = Aspire(**config_dict)
 
-        aspire._load_flow_from_file(
+        aspire._load_proposal_from_file(
             file_path,
             flow_path=flow_path,
             required=True,

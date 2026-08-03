@@ -8,28 +8,31 @@ Saving checkpoints while sampling
 
 - Pass ``checkpoint_path`` (an HDF5 file) to :py:meth:`aspire.Aspire.sample_posterior`
   to write checkpoints as the sampler runs. Use ``checkpoint_every`` to control
-  frequency and ``checkpoint_save_config/flow`` to control what metadata is saved.
+  frequency and ``checkpoint_save_config`` to control whether configuration is
+  saved.
 - For a convenience wrapper, wrap your sampling in
   ``with aspire.auto_checkpoint("run.h5", every=1): ...``. Inside the context,
-  ``sample_posterior`` will default to checkpointing to that file, and the config/flow
-  will be updated as needed.
+  ``sample_posterior`` will default to checkpointing to that file, and the
+  config/proposal will be updated as needed. Pass ``save_proposal=False`` to
+  omit the proposal.
 
 What gets saved
 ^^^^^^^^^^^^^^^
 
 - The sampler stores checkpoints under ``/checkpoint/state`` in the HDF5 file.
 - Aspire writes ``/aspire_config`` for Aspire-level configuration,
-  ``/sampler_config`` for sampler metadata, and ``/flow`` for the saved flow.
+  ``/sampler_config`` for sampler metadata, and ``/proposal`` for the saved
+  proposal.
   If these already exist, they are overwritten when saving.
 - ``resume_from_file`` and ``auto_checkpoint(..., resume=True)`` also accept
-  legacy files where sampler metadata was embedded inside ``/aspire_config``
-  instead of stored under ``/sampler_config``.
+  legacy files where the proposal was stored under ``/flow`` or sampler
+  metadata was embedded inside ``/aspire_config``.
 
 Resuming from a file
 --------------------
 
-- Use :py:meth:`aspire.Aspire.resume_from_file` to rebuild an Aspire instance and flow
-  from a checkpoint file:
+- Use :py:meth:`aspire.Aspire.resume_from_file` to rebuild an Aspire instance
+  and proposal from a checkpoint file:
 
   .. code-block:: python
 
@@ -42,25 +45,25 @@ Resuming from a file
       with aspire.auto_checkpoint("run.h5", every=1):
           samples = aspire.sample_posterior(...)
 
-- ``resume_from_file`` loads config, flow, and the last checkpoint (if present), and
-  primes the instance to resume sampling; you can still override sampler kwargs when
-  calling ``sample_posterior``.
+- ``resume_from_file`` loads config, the proposal, and the last checkpoint (if
+  present), and primes the instance to resume sampling; you can still override
+  sampler kwargs when calling ``sample_posterior``.
 
 Resuming with ``auto_checkpoint``
 ---------------------------------
 
-- If you use ``auto_checkpoint(..., resume=True)``, it will attempt to load the flow
-  and config from the checkpoint file when entering the context. If a checkpoint is
-  found, it will also load that and prime the instance to resume sampling. If no
-  checkpoint is found, it will simply load the flow and config (if present) and start
-  fresh sampling.
+- If you use ``auto_checkpoint(..., resume=True)``, it will attempt to load the
+  proposal and config from the checkpoint file when entering the context. If a
+  checkpoint is found, it will also load that and prime the instance to resume
+  sampling. If no checkpoint is found, it will simply load the proposal and
+  config (if present) and start fresh sampling.
 
   .. code-block:: python
 
       aspire = Aspire(...)
 
       with aspire.auto_checkpoint("run.h5", every=1, resume=True):
-          # Flow with be loaded from the file if present and training will be skipped
+          # The proposal is loaded if present and training is skipped
           aspire.fit(...)
           # If a checkpoint was found, sampling will resume from that; otherwise it will start from scratch
           samples = aspire.sample_posterior(...)
@@ -81,16 +84,16 @@ Manual resume via ``sample_posterior`` args
           checkpoint_path="run.h5",  # optional: keep writing checkpoints
       )
 
-- To resume from a file without using ``resume_from_file``, load the checkpoint bytes
-  and flow yourself, then call ``sample_posterior``:
+- To resume from a file without using ``resume_from_file``, load the checkpoint
+  bytes and proposal yourself, then call ``sample_posterior``:
 
   .. code-block:: python
 
       from aspire.utils import AspireFile
 
-      aspire = Aspire(..., flow_backend="zuko")
+      aspire = Aspire(...)
       with AspireFile("run.h5", "r") as f:
-          aspire.load_flow(f, path="flow")
+          aspire.load_proposal(f, path="proposal")
           # Standard layout is /checkpoint/state; adjust if you used a different path
           checkpoint_bytes = f["checkpoint"]["state"][...].tobytes()
       samples = aspire.sample_posterior(
@@ -102,11 +105,11 @@ Notes and tips
 --------------
 
 - Checkpoint files must be HDF5 (``.h5``/``.hdf5``).
-- If a checkpoint is missing in the file (e.g., sampling never wrote one), the flow
-  and config are still loaded; you can simply start sampling again and checkpointing
-  will continue to the same file.
-- For manual control, you can always call ``save_config`` / ``save_flow`` yourself
-  on an :class:`aspire.utils.AspireFile`.
+- If a checkpoint is missing in the file (e.g., sampling never wrote one), the
+  proposal and config are still loaded; you can simply start sampling again
+  and checkpointing will continue to the same file.
+- For manual control, call ``save_config`` / ``save_proposal`` on an
+  :class:`aspire.utils.AspireFile`.
 - SMC samplers also accept a custom ``checkpoint_callback`` and ``checkpoint_every`` if
   you want full control over how checkpoints are persisted or inspected. Provide a
   callable that accepts the checkpoint state dict; from there you can, for example,

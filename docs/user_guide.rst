@@ -21,7 +21,7 @@ Workflow overview
    BlackJAX, or custom samplers).
 5. **Inspect, save, and reuse** the resulting
    :class:`aspire.samples.Samples`, :class:`aspire.history.History`
-   objects, and the fitted flow.
+   objects, and the fitted proposal.
 
 Working with samples
 --------------------
@@ -41,22 +41,43 @@ plots and dataframes. Use :meth:`aspire.samples.Samples.from_samples` to
 switch namespaces or merge multiple runs with
 :meth:`aspire.samples.Samples.concatenate`.
 
-Flows and transforms
---------------------
+Proposals, flows, and transforms
+--------------------------------
 
-Aspire can work with any flow that implements ``sample_and_log_prob`` and
-``log_prob``. Flows are defined via
-:class:`aspire.flows.base.Flow` and instantiated by
-:meth:`aspire.Aspire.init_flow`. By default Aspire uses the ``zuko``
-implementation of Masked Autoregressive Flows on top of PyTorch. The flow is
+Aspire can work with any proposal that implements ``sample_and_log_prob`` and
+``log_prob``. Pass an instance using the ``proposal`` argument. If no proposal
+is supplied, Aspire automatically creates a normalizing-flow proposal when it
+is first fitted. By default this is a ``zuko`` Masked Autoregressive
+Flow on top of PyTorch. You can initialize it eagerly with
+:meth:`aspire.Aspire.init_proposal`.
+
+For a basic parametric alternative, use
+:class:`aspire.proposals.GaussianProposal`:
+
+.. code-block:: python
+
+    from aspire import Aspire
+    from aspire.proposals import GaussianProposal
+
+    proposal = GaussianProposal(dims=4)
+    aspire = Aspire(
+        log_likelihood=log_likelihood,
+        log_prior=log_prior,
+        dims=4,
+        proposal=proposal,
+    )
+    aspire.fit(training_samples)
+
+Flow proposals are defined via :class:`aspire.flows.base.Flow` and are
 automatically wrapped with :class:`aspire.transforms.FlowTransform` (or a
 composite of bounded / periodic transforms) so you can work with native
 parameter ranges while still optimising in unconstrained space.
 
 You can choose a backend by setting ``flow_backend="flowjax"`` to leverage JAX
-or by providing a fully constructed ``flow`` instance. When ``flow_matching``
-is enabled, Aspire trains a score-based model instead of a classical density
-estimator (requires the `zuko` backend).
+or by passing a fully constructed flow as ``proposal=flow``. The legacy
+``flow=`` argument is deprecated and will be removed in a future major
+release. When ``flow_matching`` is enabled, Aspire trains a score-based model
+instead of a classical density estimator (requires the `zuko` backend).
 
 External flow implementations can be plugged in via the
 ``aspire.flows`` entry point group. See :ref:`custom_flows` for details.
@@ -67,8 +88,8 @@ Transform mechanics
 Aspire keeps a clear separation between your native parameters and the space
 where flows or kernels operate:
 
-* :class:`aspire.transforms.FlowTransform` is attached to every flow created by
-  :meth:`aspire.Aspire.init_flow`. By default, it maps bounded parameters to the real line (``probit`` or
+* :class:`aspire.transforms.FlowTransform` is attached to every flow proposal
+  created automatically by Aspire. By default, it maps bounded parameters to the real line (``probit`` or
   ``logit``), and recentres / rescales dimensions with an affine
   transform learned from the training samples. Log-Jacobian terms are tracked so
   calls to ``log_prob`` or ``sample_and_log_prob`` remain properly normalised.
@@ -120,9 +141,9 @@ Importance sampling
 ~~~~~~~~~~~~~~~~~~~
 
 ``importance``
-    Draws independent samples from the fitted flow and reweights them using
-    the provided likelihood/prior functions. Perfect for quick sanity checks
-    or sanity bounds on evidence estimates.
+    Draws independent samples from the fitted proposal and reweights them
+    using the provided likelihood/prior functions. Perfect for quick sanity
+    checks or sanity bounds on evidence estimates.
 
 Markov chain Monte Carlo
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -160,8 +181,8 @@ specialised helpers like :meth:`aspire.history.SMCHistory.plot_beta`.
 
 Use the following methods to persist and later resume work:
 
-* :meth:`aspire.Aspire.save_flow` / :meth:`aspire.Aspire.load_flow` to
-  snapshot the trained flow.
+* :meth:`aspire.Aspire.save_proposal` /
+  :meth:`aspire.Aspire.load_proposal` to snapshot the fitted proposal.
 * :meth:`aspire.Aspire.save_config` or
   :meth:`aspire.Aspire.save_config_to_json` to capture all hyperparameters.
 * :meth:`aspire.samples.BaseSamples.save` to store weighted samples in HDF5

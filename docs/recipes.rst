@@ -27,12 +27,12 @@ likelihood evaluations for samples that lie outside the prior bounds.
         return logl
 
 
-Checking the flow distribution
-------------------------------
+Checking the proposal distribution
+----------------------------------
 
 It can be useful to inspect the flow-based proposal distribution before sampling
-from the posterior. You can do this by drawing samples from the flow after fitting
-and comparing them to the initial samples:
+from the posterior. You can do this by drawing samples from the proposal after
+fitting and comparing them to the initial samples:
 
 
 .. code-block:: python
@@ -50,21 +50,21 @@ and comparing them to the initial samples:
         ...
     )
 
-    # Fit the flow to the initial samples
+    # Fit the proposal to the initial samples
     fit_history = aspire.fit(initial_samples)
 
-    # Draw samples from the flow
-    flow_samples = aspire.sample_flow(10_000)
+    # Draw samples from the proposal
+    proposal_samples = aspire.sample_proposal(10_000)
 
     # Plot a comparison between initial samples and flow samples
     fig = plot_comparison(
         initial_samples,
-        flow_samples,
+        proposal_samples,
         per_samples_kwargs=[
             dict(include_weights=False, color="C0"),
             dict(include_weights=False, color="C1"),
         ],
-        labels=["Initial samples", "Flow samples"],
+        labels=["Initial samples", "Proposal samples"],
     )
     # Save or show the figure
-    fig.savefig("flow_comparison.png")
+    fig.savefig("proposal_comparison.png")
