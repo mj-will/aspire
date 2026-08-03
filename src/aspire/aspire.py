@@ -14,7 +14,7 @@ import h5py
 
 from .flows import get_flow_wrapper
 from .flows.base import Flow
-from .history import FitHistory
+from .history import FitHistory, FlowHistory
 from .proposals import Proposal
 from .samplers.base import Sampler
 from .samples import Samples
@@ -295,6 +295,8 @@ class Aspire:
                 "Skipping proposal training because a checkpointed proposal "
                 "was loaded."
             )
+            if isinstance(self._proposal, Flow):
+                return FlowHistory()
             return FitHistory()
         self.training_samples = samples
         logger.info(f"Training with {len(samples.x)} samples")
@@ -310,7 +312,11 @@ class Aspire:
                     "Proposal %s fit method returned None; returning empty FitHistory.",
                     type(self._proposal).__name__,
                 )
-                history = FitHistory()
+                history = (
+                    FlowHistory()
+                    if isinstance(self._proposal, Flow)
+                    else FitHistory()
+                )
         else:
             logger.info(
                 "Proposal %s does not implement fit; using it unchanged.",
