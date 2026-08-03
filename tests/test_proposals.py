@@ -6,7 +6,7 @@ import pytest
 
 from aspire import Aspire, Samples
 from aspire.flows.base import Flow
-from aspire.history import FitHistory
+from aspire.history import FitHistory, FlowHistory
 from aspire.proposals import GaussianProposal, Proposal
 from aspire.utils import load_from_h5_file
 
@@ -110,6 +110,26 @@ def test_aspire_fit_returns_history_when_proposal_fit_returns_none():
     history = aspire.fit(Samples(np.array([[1.0], [2.0], [3.0]])))
 
     assert isinstance(history, FitHistory)
+
+
+def test_aspire_fit_returns_flow_history_when_flow_training_is_skipped():
+    class FixedFlow(Flow):
+        xp = np
+
+    flow = FixedFlow(dims=1, device=None)
+    aspire = Aspire(
+        log_likelihood=log_likelihood,
+        log_prior=log_prior,
+        dims=1,
+        proposal=flow,
+    )
+    aspire._skip_proposal_training = True
+
+    history = aspire.fit(Samples(np.array([[0.0], [1.0]])))
+
+    assert isinstance(history, FlowHistory)
+    assert history.training_loss == []
+    assert history.validation_loss == []
 
 
 def test_sample_posterior_requires_initialized_proposal():
