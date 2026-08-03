@@ -972,6 +972,10 @@ class Aspire:
         """
         if self.proposal is None:
             raise ValueError("Proposal has not been initialized.")
+        if not hasattr(self.proposal, "save"):
+            raise ValueError(
+                f"Proposal of type {type(self.proposal)} does not implement a 'save' method."
+            )
         self.proposal.save(h5_file, path=path)
         proposal_group = h5_file[path]
         proposal_group.attrs["proposal_module"] = type(
