@@ -14,7 +14,7 @@ import h5py
 
 from .flows import get_flow_wrapper
 from .flows.base import Flow
-from .history import FlowHistory, History
+from .history import FitHistory
 from .proposals import Proposal
 from .samplers.base import Sampler
 from .samples import Samples
@@ -263,7 +263,7 @@ class Aspire:
         checkpoint_save_config: bool = True,
         overwrite: bool = False,
         **kwargs,
-    ) -> History:
+    ) -> FitHistory:
         """Fit the proposal to the provided samples.
 
         For flow-based proposals this trains the normalizing flow. For other
@@ -295,7 +295,7 @@ class Aspire:
                 "Skipping proposal training because a checkpointed proposal "
                 "was loaded."
             )
-            return FlowHistory()
+            return FitHistory()
         self.training_samples = samples
         logger.info(f"Training with {len(samples.x)} samples")
 
@@ -305,12 +305,18 @@ class Aspire:
         fit = getattr(self._proposal, "fit", None)
         if callable(fit):
             history = fit(samples.x, **kwargs)
+            if history is None:
+                logger.debug(
+                    "Proposal %s fit method returned None; returning empty FitHistory.",
+                    type(self._proposal).__name__,
+                )
+                history = FitHistory()
         else:
             logger.info(
                 "Proposal %s does not implement fit; using it unchanged.",
                 type(self._proposal).__name__,
             )
-            history = FlowHistory()
+            history = FitHistory()
 
         defaults = getattr(self, "_checkpoint_defaults", None)
         if checkpoint_path is None and defaults:
