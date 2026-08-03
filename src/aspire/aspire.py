@@ -528,6 +528,11 @@ class Aspire:
         samples : Samples
             Samples object contain samples and their corresponding weights.
         """
+        if self.proposal is None:
+            raise RuntimeError(
+                "Cannot sample posterior before initializing the proposal."
+            )
+
         if (
             sampler == "importance"
             and hasattr(self, "_resume_sampler_type")
