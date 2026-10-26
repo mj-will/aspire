@@ -64,47 +64,11 @@ Clone the repository and install in editable mode:
     # (optional) create/activate a virtual environment
    $ python -m pip install -e ".[torch,minipcn]"
 
-For development, install the test and lint dependencies from the repository
-using pip 25.1 or newer:
-
-.. code-block:: console
-
-   $ python -m pip install --upgrade pip
-   $ python -m pip install -e . --group dev
-   $ pre-commit install
-
-The ``test`` dependency group includes all sampler and flow backends. The
-``test-unrestricted`` group contains the same dependencies and is used by CI
-after installing CPU PyTorch explicitly. The existing ``test`` extra remains
-available for installing only pytest and its helpers.
-
-With uv, the default development group uses the CPU PyTorch index configured in
-``pyproject.toml``:
-
-.. code-block:: console
-
-   $ uv sync
-   $ uv run pre-commit install
-   $ uv run python -m pytest
-
-To use PyTorch from the default package index instead, choose the unrestricted
-test group without the default development group:
-
-.. code-block:: console
-
-   $ uv sync --no-default-groups --group test-unrestricted
-
-After installation with pip, run the test suite:
+After installation, run the unit test suite to confirm everything is wired up:
 
 .. code-block:: console
 
    $ python -m pytest
-
-Run the lint hooks before submitting changes:
-
-.. code-block:: console
-
-   $ pre-commit run --all-files
 
 Building the docs locally requires ``sphinx`` and (optionally) the
 ``sphinx-``. These are installed automatically when you run

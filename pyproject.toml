@@ -64,58 +64,6 @@ pandas = [
     "pandas",
 ]
 
-[dependency-groups]
-test-common = [
-    "pytest",
-    "pytest-requires",
-    "pytest-cov",
-    "scipy",
-    "jax",
-    "jaxlib<0.8.2; python_version < '3.12'",
-    "jaxlib; python_version >= '3.12'",
-    "flowjax",
-    "minipcn[array-api]>=0.2.0a3",
-    "emcee",
-    "blackjax",
-    "fastprogress<1.1.0",
-    "corner",
-    "pandas",
-]
-test = [
-    {include-group = "test-common"},
-    "torch",
-    "zuko",
-    "tqdm",
-]
-test-unrestricted = [
-    {include-group = "test-common"},
-    "torch",
-    "zuko",
-    "tqdm",
-]
-dev = [
-    "pre-commit",
-    {include-group = "test"},
-]
-
-[tool.uv]
-conflicts = [
-    [
-        {group = "test"},
-        {group = "test-unrestricted"},
-    ],
-]
-
-[tool.uv.sources]
-torch = [
-    {index = "pytorch-cpu", group = "test"},
-]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
 [project.urls]
 Homepage = "https://github.com/mj-will/aspire"
 Documentation = "https://aspire.readthedocs.io/"
@@ -143,3 +91,61 @@ addopts = [
     "--import-mode=importlib",
 ]
 testpaths = ["tests"]
+
+# Pixi reuses the package dependencies, optional extras and dependency groups.
+[dependency-groups]
+test-core = [
+    "pytest",
+    "pytest-requires",
+    "pytest-cov",
+    "scipy",
+    "corner",
+    "pandas",
+]
+lint = [
+    "pre-commit",
+    "ruff==0.11.8",
+]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64"]
+requires-pixi = ">=0.78"
+
+[tool.pixi.pypi-dependencies]
+aspire-inference = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = { features = ["py313", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax", "lint"], solve-group = "py313" }
+py311 = ["py311", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax"]
+py312 = ["py312", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax"]
+py313 = { features = ["py313", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax"], solve-group = "py313" }
+
+[tool.pixi.feature.py311.dependencies]
+python = "3.11.*"
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+[tool.pixi.feature.test-core.tasks]
+test = "python -m pytest"
+test-unit = "python -m pytest tests --ignore=tests/integration_tests"
+
+[tool.pixi.feature.lint.tasks]
+lint = "ruff check ."
+format-check = "ruff format --check ."
+
+[tool.pixi.feature.jax.activation.env]
+JAX_PLATFORMS = "cpu"
+
+[tool.pixi.feature.torch-cpu.dependencies]
+pytorch-cpu = "*"
+# Match Sequince's CPU setup and avoid MKL activation requiring Intel runtimes.
+libblas = { version = "*", build = "*openblas" }
+
+[tool.pixi.feature.torch-cpu.pypi-dependencies]
+zuko = "*"
+tqdm = "*"
