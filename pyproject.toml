@@ -64,6 +64,58 @@ pandas = [
     "pandas",
 ]
 
+[dependency-groups]
+test-common = [
+    "pytest",
+    "pytest-requires",
+    "pytest-cov",
+    "scipy",
+    "jax",
+    "jaxlib<0.8.2; python_version < '3.12'",
+    "jaxlib; python_version >= '3.12'",
+    "flowjax",
+    "minipcn[array-api]>=0.2.0a3",
+    "emcee",
+    "blackjax",
+    "fastprogress<1.1.0",
+    "corner",
+    "pandas",
+]
+test = [
+    {include-group = "test-common"},
+    "torch",
+    "zuko",
+    "tqdm",
+]
+test-unrestricted = [
+    {include-group = "test-common"},
+    "torch",
+    "zuko",
+    "tqdm",
+]
+dev = [
+    "pre-commit",
+    {include-group = "test"},
+]
+
+[tool.uv]
+conflicts = [
+    [
+        {group = "test"},
+        {group = "test-unrestricted"},
+    ],
+]
+
+[tool.uv.sources]
+torch = [
+    {index = "pytorch-cpu", group = "test"},
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [project.urls]
 Homepage = "https://github.com/mj-will/aspire"
 Documentation = "https://aspire.readthedocs.io/"
