@@ -1,4 +1,5 @@
 import copy
+import importlib
 import logging
 import multiprocessing as mp
 import pickle
@@ -9,22 +10,24 @@ from pathlib import Path
 from typing import Any, Callable
 
 import h5py
+from array_api_compat import array_namespace
+from sequince.flows import flow_state_dict, load_flow_state_dict
+from sequince.transforms import (
+    FlowTransform,
+)
+from sequince_density.flows.base import Flow
 
-from .flows import get_flow_wrapper
-from .flows.base import Flow
 from .history import FlowHistory, History
 from .samplers.base import Sampler
 from .samples import Samples
-from .transforms import (
-    CompositeTransform,
-    FlowPreconditioningTransform,
-    FlowTransform,
-)
 from .utils import (
     AspireFile,
+    build_particle_transform,
     function_id,
+    get_flow_class,
     load_from_h5_file,
     recursively_save_to_h5_file,
+    resolve_dtype,
     resolve_xp,
 )
 
@@ -175,19 +178,18 @@ class Aspire:
         return samples
 
     def init_flow(self):
-        FlowClass, xp = get_flow_wrapper(
+        FlowClass = get_flow_class(
             backend=self.flow_backend, flow_matching=self.flow_matching
         )
+        xp = FlowClass.xp
 
-        data_transform = FlowTransform(
+        particle_transform = build_particle_transform(
             parameters=self.parameters,
             prior_bounds=self.prior_bounds,
+            periodic_parameters=None,
             bounded_to_unbounded=self.bounded_to_unbounded,
             bounded_transform=self.bounded_transform,
-            device=self.device,
-            xp=xp,
             eps=self.eps,
-            dtype=self.dtype,
         )
 
         # Check if FlowClass takes `parameters` as an argument
@@ -199,9 +201,13 @@ class Aspire:
 
         self._flow = FlowClass(
             dims=self.dims,
-            device=self.device,
-            data_transform=data_transform,
-            dtype=self.dtype,
+            device=self.device or "cpu",
+            particle_transform=particle_transform,
+            dtype=(
+                resolve_dtype(self.dtype, xp)
+                if self.dtype is not None
+                else None
+            ),
             **self.flow_kwargs,
         )
 
@@ -244,7 +250,15 @@ class Aspire:
 
         self.training_samples = samples
         logger.info(f"Training with {len(samples.x)} samples")
-        history = self.flow.fit(samples.x, **kwargs)
+        fit_result = self.flow.fit(samples.x, **kwargs)
+        if isinstance(fit_result, FlowHistory):
+            history = fit_result
+        else:
+            fit_history = getattr(self.flow, "fit_history", {})
+            history = FlowHistory(
+                training_loss=list(fit_history.get("training_loss", [])),
+                validation_loss=list(fit_history.get("validation_loss", [])),
+            )
         defaults = getattr(self, "_checkpoint_defaults", None)
         if checkpoint_path is None and defaults:
             checkpoint_path = defaults["path"]
@@ -282,13 +296,13 @@ class Aspire:
         elif sampler_type == "emcee":
             from .samplers.mcmc import Emcee as SamplerClass
         elif sampler_type == "emcee_smc":
-            from .samplers.smc.emcee import EmceeSMC as SamplerClass
+            from .samplers.smc import EmceeSMC as SamplerClass
+        elif sampler_type == "blackjax_smc":
+            from .samplers.smc import BlackJAXSMC as SamplerClass
         elif sampler_type == "minipcn":
             from .samplers.mcmc import MiniPCN as SamplerClass
         elif sampler_type in ["smc", "minipcn_smc"]:
-            from .samplers.smc.minipcn import MiniPCNSMC as SamplerClass
-        elif sampler_type == "blackjax_smc":
-            from .samplers.smc.blackjax import BlackJAXSMC as SamplerClass
+            from .samplers.smc import MiniPCNSMC as SamplerClass
         else:
             from importlib.metadata import entry_points
 
@@ -335,34 +349,61 @@ class Aspire:
         if preconditioning is None or preconditioning == "none":
             transform = None
         elif preconditioning in ["standard", "default"]:
-            preconditioning_kwargs = preconditioning_kwargs or {}
+            preconditioning_kwargs = dict(preconditioning_kwargs or {})
             preconditioning_kwargs.setdefault("affine_transform", False)
             preconditioning_kwargs.setdefault("bounded_to_unbounded", False)
             preconditioning_kwargs.setdefault("bounded_transform", "logit")
-            transform = CompositeTransform(
+            transform = build_particle_transform(
                 parameters=self.parameters,
                 prior_bounds=self.prior_bounds,
                 periodic_parameters=self.periodic_parameters,
-                xp=self.xp,
-                device=self.device,
-                dtype=self.dtype,
+                eps=self.eps,
                 **preconditioning_kwargs,
             )
         elif preconditioning == "flow":
-            preconditioning_kwargs = preconditioning_kwargs or {}
+            if self.periodic_parameters:
+                raise NotImplementedError(
+                    "Flow preconditioning with periodic parameters is not "
+                    "supported. Use preconditioning='default' or 'none'."
+                )
+            preconditioning_kwargs = dict(preconditioning_kwargs or {})
+            fit_kwargs = preconditioning_kwargs.pop("fit_kwargs", None)
+            flow_kwargs = dict(
+                preconditioning_kwargs.pop("flow_kwargs", self.flow_kwargs)
+            )
             preconditioning_kwargs.setdefault("affine_transform", False)
-            transform = FlowPreconditioningTransform(
+            preconditioning_kwargs.setdefault(
+                "bounded_to_unbounded", self.bounded_to_unbounded
+            )
+            preconditioning_kwargs.setdefault(
+                "bounded_transform", self.bounded_transform
+            )
+            particle_transform = build_particle_transform(
                 parameters=self.parameters,
-                flow_backend=self.flow_backend,
-                flow_kwargs=self.flow_kwargs,
-                flow_matching=self.flow_matching,
                 periodic_parameters=self.periodic_parameters,
-                bounded_to_unbounded=self.bounded_to_unbounded,
                 prior_bounds=self.prior_bounds,
-                xp=self.xp,
-                dtype=self.dtype,
-                device=self.device,
+                eps=self.eps,
                 **preconditioning_kwargs,
+            )
+            FlowClass = get_flow_class(
+                backend=self.flow_backend,
+                flow_matching=self.flow_matching,
+            )
+            flow_xp = FlowClass.xp
+            transform_flow = FlowClass(
+                dims=self.dims,
+                device=self.device or "cpu",
+                particle_transform=particle_transform,
+                dtype=(
+                    resolve_dtype(self.dtype, flow_xp)
+                    if self.dtype is not None
+                    else None
+                ),
+                **flow_kwargs,
+            )
+            transform = FlowTransform(
+                transform_flow,
+                fit_kwargs=fit_kwargs,
             )
         else:
             raise ValueError(f"Unknown preconditioning: {preconditioning}")
@@ -395,9 +436,9 @@ class Aspire:
     ) -> Samples:
         """Draw samples from the posterior distribution.
 
-        If using a sampler that calls an external sampler, e.g.
-        :code:`minipcn` then keyword arguments for this sampler should be
-        specified in :code:`sampler_kwargs`. For example:
+        For SMC, mutation options belong in :code:`sampler_kwargs`.
+        For standalone MCMC, pass chain and mutation options directly.
+        For example:
 
         .. code-block:: python
 
@@ -461,7 +502,7 @@ class Aspire:
             kwargs["resume_from"] = self._resume_from_default
             if hasattr(self, "_resume_overrides"):
                 kwargs.update(self._resume_overrides)
-            if hasattr(self, "_resume_n_samples") and n_samples == 1000:
+            if hasattr(self, "_resume_n_samples") and n_samples is None:
                 n_samples = self._resume_n_samples
 
         SamplerClass = self.get_sampler_class(sampler)
@@ -496,6 +537,8 @@ class Aspire:
         saved_config = (
             defaults.get("saved_config", False) if defaults else False
         )
+        if kwargs.get("checkpoint_callback") is not None:
+            kwargs.setdefault("checkpoint_every", checkpoint_every)
         if checkpoint_path is not None:
             # Check if sampler supports checkpointing
             signatured_sample = signature(self._sampler.sample)
@@ -863,7 +906,18 @@ class Aspire:
         """
         if self.flow is None:
             raise ValueError("Flow has not been initialized.")
-        self.flow.save(h5_file, path=path)
+        init_args = dict(getattr(self.flow, "_init_args", {}))
+        payload = pickle.dumps(
+            {
+                "module": type(self.flow).__module__,
+                "class": type(self.flow).__qualname__,
+                "init_args": init_args,
+                "state": flow_state_dict(self.flow),
+            }
+        )
+        if path in h5_file:
+            del h5_file[path]
+        h5_file.create_dataset(path, data=list(payload), dtype="u1")
 
     def load_flow(self, h5_file: h5py.File, path="flow") -> None:
         """Load the flow from an HDF5 file.
@@ -875,11 +929,21 @@ class Aspire:
         path : str
             The path in the HDF5 file to load the flow from.
         """
-        FlowClass, xp = get_flow_wrapper(
-            backend=self.flow_backend, flow_matching=self.flow_matching
-        )
-        logger.debug(f"Loading flow of type {FlowClass} from {path}")
-        self._flow = FlowClass.load(h5_file, path=path)
+        if isinstance(h5_file[path], h5py.Group):
+            raise ValueError(
+                "Legacy Aspire saved flows are not compatible with the "
+                "Sequince Density backend. Refit the flow and start a new "
+                "checkpoint file."
+            )
+        payload = pickle.loads(bytes(h5_file[path][()]))
+        module = importlib.import_module(payload["module"])
+        FlowClass = module
+        for part in payload["class"].split("."):
+            FlowClass = getattr(FlowClass, part)
+        init_args = dict(payload["init_args"])
+        extra_kwargs = init_args.pop("kwargs", {})
+        self._flow = FlowClass(**extra_kwargs, **init_args)
+        load_flow_state_dict(self._flow, payload["state"])
 
     def save_config_to_json(self, filename: str) -> None:
         """Save the configuration to a JSON file."""
@@ -929,18 +993,44 @@ class Aspire:
                 if sampler_config_path in h5_file
                 else None
             )
-            try:
-                checkpoint_bytes = h5_file[checkpoint_path][checkpoint_dset][
-                    ...
-                ].tobytes()
-            except Exception:
-                logger.warning(
-                    "Checkpoint not found at %s/%s in %s; will resume without a checkpoint.",
-                    checkpoint_path,
-                    checkpoint_dset,
-                    file_path,
+            checkpoint_group = h5_file.get(checkpoint_path)
+            if checkpoint_group is not None and "runtime" in checkpoint_group:
+                from sequince.checkpoint import SMCCheckpoint
+
+                checkpoint = SMCCheckpoint.load_hdf5(
+                    h5_file,
+                    path=checkpoint_path,
+                    dsetname="runtime",
                 )
-                checkpoint_bytes = None
+                checkpoint_state = checkpoint.to_dict()
+                checkpoint_bytes = pickle.dumps(checkpoint_state)
+                n_samples = len(checkpoint.state.particles)
+                checkpoint_xp = array_namespace(checkpoint.state.particles)
+            else:
+                if (
+                    checkpoint_group is not None
+                    and checkpoint_dset in checkpoint_group
+                ):
+                    raise ValueError(
+                        "Legacy Aspire checkpoints are not compatible with "
+                        "the Sequince backend. Start a new sampling run."
+                    )
+                try:
+                    checkpoint_bytes = checkpoint_group[checkpoint_dset][
+                        ...
+                    ].tobytes()
+                except Exception:
+                    logger.warning(
+                        "Checkpoint not found at %s/%s in %s; will resume "
+                        "without a checkpoint.",
+                        checkpoint_path,
+                        checkpoint_dset,
+                        file_path,
+                    )
+                    checkpoint_bytes = None
+                checkpoint_state = None
+                n_samples = None
+                checkpoint_xp = None
 
         sampler_config = None
         saved_sampler_type = None
@@ -969,10 +1059,7 @@ class Aspire:
                 stacklevel=2,
             )
 
-        n_samples = None
-        checkpoint_state = None
-        checkpoint_xp = None
-        if checkpoint_bytes is not None:
+        if checkpoint_bytes is not None and checkpoint_state is None:
             try:
                 checkpoint_state = pickle.loads(checkpoint_bytes)
                 samples_saved = (
@@ -1038,6 +1125,16 @@ class Aspire:
         if not isinstance(sample_calls, dict):
             return None
 
+        sample_kwargs = sample_calls.get("kwargs")
+        if (
+            isinstance(sample_kwargs, dict)
+            and sample_kwargs.get("n_final_samples") is not None
+        ):
+            try:
+                return int(sample_kwargs["n_final_samples"])
+            except (TypeError, ValueError):
+                return None
+
         sample_args = sample_calls.get("args")
         if hasattr(sample_args, "__len__") and not isinstance(
             sample_args, (str, bytes, dict)
@@ -1053,7 +1150,6 @@ class Aspire:
             except (TypeError, ValueError):
                 return None
 
-        sample_kwargs = sample_calls.get("kwargs")
         if isinstance(sample_kwargs, dict) and "n_samples" in sample_kwargs:
             try:
                 return int(sample_kwargs["n_samples"])
@@ -1118,8 +1214,10 @@ class Aspire:
             config_path=config_path,
         )
 
-        sampler_config = config_dict.pop("sampler_config", None)
-        saved_sampler_type = config_dict.pop("sampler_type", None)
+        sampler_config = config_dict.pop("sampler_config", sampler_config)
+        saved_sampler_type = config_dict.pop(
+            "sampler_type", saved_sampler_type
+        )
         if isinstance(config_dict.get("xp"), str):
             config_dict["xp"] = resolve_xp(config_dict["xp"])
         config_dict["log_likelihood"] = log_likelihood
