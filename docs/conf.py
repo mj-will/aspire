@@ -30,6 +30,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "autoapi.extension",
+    "myst_parser",
 ]
 
 autodoc_typehints = "description"

@@ -62,6 +62,8 @@ examples, and the complete API reference.
     multiprocessing
     examples
     entry_points
+    contributing
+    ai_policy
     API Reference </autoapi/aspire/index>
 
 

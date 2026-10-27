@@ -120,6 +120,7 @@ default = { features = ["py313", "test-core", "jax", "torch-cpu", "minipcn", "em
 py311 = ["py311", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax"]
 py312 = ["py312", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax"]
 py313 = { features = ["py313", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax"], solve-group = "py313" }
+docs = ["py313", "doc"]
 
 [tool.pixi.feature.py311.dependencies]
 python = "3.11.*"
@@ -137,6 +138,15 @@ test-unit = "python -m pytest tests --ignore=tests/integration_tests"
 [tool.pixi.feature.lint.tasks]
 lint = "ruff check ."
 format-check = "ruff format --check ."
+
+[tool.pixi.feature.doc.dependencies]
+sphinx = ">=7.2"
+sphinx-book-theme = ">=1.1"
+sphinx-autoapi = ">=3.2"
+myst-parser = ">=4,<5"
+
+[tool.pixi.feature.doc.tasks]
+docs = "sphinx-build -b html docs docs/_build/html"
 
 [tool.pixi.feature.jax.activation.env]
 JAX_PLATFORMS = "cpu"

@@ -80,6 +80,11 @@ posterior.plot_corner()
 
 See the [documentation on ReadTheDocs][docs].
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, checks, and pull
+request conventions, and [AI_POLICY.md](AI_POLICY.md) for AI-assisted contributions.
+
 ## Citation
 
 If you use `aspire` in your work please cite the [DOI][DOI] and [paper][paper].

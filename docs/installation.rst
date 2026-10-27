@@ -52,26 +52,8 @@ Install extras via:
 
    $ python -m pip install "aspire-inference[torch,minipcn]"
 
-From source
------------
+Development installation
+------------------------
 
-Clone the repository and install in editable mode:
-
-.. code-block:: console
-
-   $ git clone https://github.com/mj-will/aspire.git
-   $ cd aspire
-    # (optional) create/activate a virtual environment
-   $ python -m pip install -e ".[torch,minipcn]"
-
-After installation, run the unit test suite to confirm everything is wired up:
-
-.. code-block:: console
-
-   $ python -m pytest
-
-Building the docs locally requires ``sphinx`` and (optionally) the
-``sphinx-``. These are installed automatically when you run
-``python -m pip install -r docs/requirements.txt`` if such a file exists, or
-you can install ``sphinx`` manually before invoking ``make html`` inside the
-``docs`` directory.
+For an editable development installation, Pixi setup, tests, and documentation
+build instructions, see the :doc:`contribution guide <contributing>`.
