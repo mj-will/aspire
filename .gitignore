@@ -163,3 +163,7 @@ cython_debug/
 
 # Project-specific
 outdir/
+
+# Local Pixi environments and generated dependency lockfiles
+.pixi/
+pixi.lock
