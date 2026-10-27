@@ -1,82 +1,56 @@
-from unittest.mock import MagicMock
-
-import numpy as np
 import pytest
+from sequince.checkpoint import SMCCheckpoint
 
-from aspire.samplers.mcmc import MCMCSampler
-
-
-@pytest.fixture
-def dims():
-    return 2
+from aspire.samplers.mcmc import Emcee, MCMCSampler
+from aspire.samplers.smc import EmceeSMC
+from aspire.samples import MCMCSamples
 
 
-def log_likelihood(samples):
-    return -0.5 * np.sum(samples.x**2, axis=1)
+def test_mcmc_returns_aspire_samples_and_history(sampler_kwargs):
+    sampler = MCMCSampler(**sampler_kwargs)
+    samples = sampler.sample(8, n_steps=3, rng=5)
+
+    assert isinstance(samples, MCMCSamples)
+    assert samples.x.shape == (8, 2)
+    assert sampler.result.chain.shape == (3, 8, 2)
+    assert sampler.history is sampler.result
 
 
-def log_prior(samples):
-    return -0.5 * np.sum(samples.x**2, axis=1)
+def test_mcmc_supports_native_and_checkpoint_callbacks(sampler_kwargs):
+    iterations = []
+    checkpoints = []
 
-
-@pytest.fixture
-def sampler(dims, rng):
-    sampler = MCMCSampler(
-        log_prior=log_prior,
-        log_likelihood=log_likelihood,
-        dims=dims,
-        preconditioning_transform=None,
-        prior_flow=MagicMock(
-            sample_and_log_prob=MagicMock(
-                return_value=(rng.random((10, dims)), rng.random(10))
-            ),
-            xp=np,
-        ),
-        xp=np,
+    sampler = MCMCSampler(**sampler_kwargs)
+    sampler.sample(
+        8,
+        n_steps=3,
+        rng=5,
+        callbacks=[lambda state, context, result: iterations.append(result)],
+        checkpoint_callback=checkpoints.append,
     )
-    return sampler
+
+    assert len(iterations) == 1
+    assert len(checkpoints) == 1
+    assert isinstance(checkpoints[0], SMCCheckpoint)
 
 
-def test_draw_initial_samples(sampler):
-    n_samples = 10
-    samples = sampler.draw_initial_samples(n_samples)
-    assert samples.x.shape[0] == n_samples
-    assert samples.parameters is not None
-
-
-def test_draw_initial_samples_invalid_flow(sampler, rng):
-    n_samples = 10
-    samples = rng.random((n_samples, sampler.dims))
-    log_prob = rng.random(n_samples)
-    log_prob[0] = -np.inf  # Simulate flow sampling failure
-    sampler.prior_flow.sample_and_log_prob = MagicMock(
-        return_value=(samples, log_prob)
+@pytest.mark.requires("emcee")
+@pytest.mark.parametrize("vectorize", [False, True])
+def test_emcee_mcmc_and_smc(sampler_kwargs, vectorize: bool):
+    mcmc = Emcee(**sampler_kwargs)
+    mcmc_samples = mcmc.sample(8, n_steps=2, rng=12, vectorize=vectorize)
+    smc = EmceeSMC(**sampler_kwargs)
+    smc_samples = smc.sample(
+        8,
+        adaptive=False,
+        n_steps=2,
+        sampler_kwargs={"nsteps": 1, "vectorize": vectorize},
+        rng=13,
     )
-    with pytest.raises(
-        ValueError, match="Proposal returned non-finite log probabilities."
-    ):
-        sampler.draw_initial_samples(n_samples)
 
-
-def test_draw_initial_samples_invalid_log_prior(sampler, rng):
-    def log_prior(samples):
-        # Random subset of samples have zero prior probability
-        return np.where(
-            rng.choice([True, False], size=samples.x.shape[0]), -np.inf, 0.0
-        )
-
-    sampler.log_prior = log_prior
-    n_samples = 10
-    sampler.draw_initial_samples(n_samples)
-
-
-def test_draw_initial_samples_invalid_log_likelihood(sampler, rng):
-    def log_likelihood(samples):
-        # Random subset of samples have zero likelihood
-        return np.where(
-            rng.choice([True, False], size=samples.x.shape[0]), -np.inf, 0.0
-        )
-
-    sampler.log_likelihood = log_likelihood
-    n_samples = 10
-    sampler.draw_initial_samples(n_samples)
+    assert mcmc_samples.x.shape == (8, 2)
+    assert mcmc.result.chain.shape == (2, 8, 2)
+    assert smc_samples.x.shape == (8, 2)
+    assert smc_samples.beta == 1.0
+    assert len(smc.history.mcmc_acceptance) == len(smc.result.states)
+    assert smc.history.mcmc_autocorr == []

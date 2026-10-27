@@ -1,3 +1,7 @@
+from array_api_compat import array_namespace
+from sequince import TemperedPosterior
+from sequince.utils.random import resolve_rng
+
 from ..samples import Samples
 from ..utils import track_calls
 from .base import Sampler
@@ -5,18 +9,27 @@ from .base import Sampler
 
 class ImportanceSampler(Sampler):
     @track_calls
-    def sample(self, n_samples: int) -> Samples:
-        x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
+    def sample(self, n_samples: int, rng=None) -> Samples:
+        rng = resolve_rng(rng)
+        posterior = TemperedPosterior(
+            self._log_prior_array,
+            self._log_likelihood_array,
+            log_proposal=self._proposal(),
+        )
+        state = self._initial_state(
+            n_samples,
+            posterior=posterior,
+            rng=rng,
+        )
+        components = state.evaluation.components
         samples = Samples(
-            x,
-            log_q=log_q,
-            xp=self.xp,
+            state.particles,
+            log_q=components["log_proposal"],
+            log_prior=components["log_prior"],
+            log_likelihood=components["log_likelihood"],
+            xp=array_namespace(state.particles),
             parameters=self.parameters,
             dtype=self.dtype,
-        )
-        samples.log_prior = samples.array_to_namespace(self.log_prior(samples))
-        samples.log_likelihood = samples.array_to_namespace(
-            self.log_likelihood(samples)
         )
         samples.compute_weights()
         return samples

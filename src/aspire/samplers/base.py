@@ -1,54 +1,152 @@
+"""Shared sampler state and Sequince protocol adapters."""
+
+from __future__ import annotations
+
 import logging
 import pickle
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
-from ..flows.base import Flow
-from ..samples import Samples
-from ..transforms import IdentityTransform
-from ..utils import (
-    AspireFile,
-    asarray,
-    determine_backend_name,
-    dump_state,
-    track_calls,
+import h5py
+from array_api_compat import array_namespace
+from sequince import draw_initial_state, draw_mcmc_initial_state
+from sequince.checkpoint import (
+    CheckpointWriter,
+    HDF5CheckpointWriter,
+    SMCCheckpoint,
 )
+from sequince.proposals import FlowProposal
+from sequince.steps.context import StepContext
+from sequince.transforms import IdentityTransform
+from sequince.typing import Array
+from sequince.utils.random import RNGLike
+
+from ..samples import Samples
+from ..utils import determine_backend_name
 
 logger = logging.getLogger(__name__)
 
 
-class Sampler:
-    """Base class for all samplers.
+class _ValidatedFlowProposal(FlowProposal):
+    """Check Aspire's event shape before Sequince builds target caches."""
 
-    Parameters
-    ----------
-    log_likelihood : Callable
-        The log likelihood function.
-    log_prior : Callable
-        The log prior function.
-    dims : int
-        The number of dimensions.
-    flow : Flow
-        The flow object.
-    xp : Callable
-        The array backend to use.
-    parameters : list[str] | None
-        The list of parameter names. If None, any samples objects will not
-        have the parameters names specified.
-    """
+    def __init__(self, flow: Any, dims: int) -> None:
+        super().__init__(flow)
+        self._dims = dims
+
+    def _validate(self, particles: Array) -> None:
+        if particles.ndim != 2 or particles.shape[1] != self._dims:
+            raise ValueError(
+                "Proposal particles must have shape "
+                f"(n_samples, {self._dims}); received {particles.shape}."
+            )
+
+    def sample(
+        self,
+        n_samples: int,
+        context: StepContext | None = None,
+        *,
+        rng: RNGLike = None,
+        xp: Any = None,
+    ) -> Array:
+        particles = super().sample(n_samples, context, rng=rng, xp=xp)
+        self._validate(particles)
+        return particles
+
+    def sample_and_log_prob(
+        self,
+        n_samples: int,
+        context: StepContext | None = None,
+        *,
+        rng: RNGLike = None,
+        xp: Any = None,
+    ) -> tuple[Array, Array]:
+        particles, log_prob = super().sample_and_log_prob(
+            n_samples, context, rng=rng, xp=xp
+        )
+        self._validate(particles)
+        return particles, log_prob
+
+
+class CallbackCheckpointWriter(CheckpointWriter):
+    """Expose Sequince checkpoints through Aspire's callback convention."""
 
     def __init__(
         self,
+        callback: Callable[[SMCCheckpoint], Any],
+        *,
+        every: int = 1,
+    ) -> None:
+        super().__init__(every=every)
+        self._callback = callback
+
+    def _write(self, checkpoint: SMCCheckpoint) -> None:
+        self._callback(checkpoint)
+
+
+def load_checkpoint(checkpoint):
+    """Load a Sequince checkpoint from an object, mapping, bytes, or HDF5 file."""
+    if checkpoint is None or isinstance(checkpoint, SMCCheckpoint):
+        return checkpoint
+    if isinstance(checkpoint, Mapping):
+        if "samples" in checkpoint:
+            raise ValueError(
+                "Legacy Aspire checkpoints are not compatible with the "
+                "Sequince backend. Start a new sampling run."
+            )
+        return SMCCheckpoint.from_dict(dict(checkpoint))
+    if isinstance(checkpoint, (bytes, bytearray)):
+        loaded = pickle.loads(checkpoint)
+        if isinstance(loaded, SMCCheckpoint):
+            return loaded
+        if isinstance(loaded, Mapping):
+            return load_checkpoint(loaded)
+        raise TypeError(
+            "Checkpoint bytes did not contain a Sequince checkpoint"
+        )
+    if isinstance(checkpoint, (str, Path)):
+        with h5py.File(checkpoint, "r") as handle:
+            group = handle.get("checkpoint")
+            if (
+                group is not None
+                and "state" in group
+                and "runtime" not in group
+                and "runtime.previous" not in group
+            ):
+                raise ValueError(
+                    "Legacy Aspire checkpoints are not compatible with the "
+                    "Sequince backend. Start a new sampling run."
+                )
+            return SMCCheckpoint.load_hdf5(handle)
+    raise TypeError(
+        f"Unsupported checkpoint type: {type(checkpoint).__name__}"
+    )
+
+
+class Sampler:
+    """Common Aspire sampler state and Sequince integration."""
+
+    mutation = "minipcn"
+
+    def __init__(
+        self,
+        prior_flow,
         log_likelihood: Callable,
         log_prior: Callable,
         dims: int,
-        prior_flow: Flow,
         xp: Callable,
         dtype: Any | str | None = None,
         parameters: list[str] | None = None,
-        preconditioning_transform: Callable | None = None,
+        preconditioning_transform=None,
     ):
         self.prior_flow = prior_flow
+        self.prior_proposal = _ValidatedFlowProposal(
+            prior_flow.flow
+            if isinstance(prior_flow, FlowProposal)
+            else prior_flow,
+            dims,
+        )
         self._log_likelihood = log_likelihood
         self._log_prior = log_prior
         self.dims = dims
@@ -58,229 +156,132 @@ class Sampler:
         self.parameters = parameters
         self.history = None
         self.n_likelihood_evaluations = 0
-        self._last_checkpoint_state: dict | None = None
-        self._last_checkpoint_bytes: bytes | None = None
-        if preconditioning_transform is None:
-            self.preconditioning_transform = IdentityTransform(xp=self.xp)
-        else:
-            self.preconditioning_transform = preconditioning_transform
-
-    def fit_preconditioning_transform(self, x):
-        """Fit the data transform to the data."""
-        x = asarray(
-            x,
-            xp=self.preconditioning_transform.xp,
-            dtype=self.preconditioning_transform.dtype,
+        self.preconditioning_transform = (
+            IdentityTransform()
+            if preconditioning_transform is None
+            else preconditioning_transform
         )
-        return self.preconditioning_transform.fit(x)
 
-    @track_calls
-    def sample(self, n_samples: int) -> Samples:
-        raise NotImplementedError
-
-    def log_likelihood(self, samples: Samples) -> Samples:
-        """Computes the log likelihood of the samples.
-
-        Also tracks the number of likelihood evaluations.
-        """
+    def log_likelihood(self, samples: Samples):
+        """Evaluate the log likelihood and update the evaluation counter."""
         self.n_likelihood_evaluations += len(samples)
         return self._log_likelihood(samples)
 
-    def log_prior(self, samples: Samples) -> Samples:
-        """Computes the log prior of the samples."""
+    def log_prior(self, samples: Samples):
+        """Evaluate the log prior."""
         return self._log_prior(samples)
 
     def config_dict(
         self,
         include_sample_calls: str | bool = "last",
     ) -> dict:
-        """
-        Returns a dictionary with the configuration of the sampler.
-
-        Parameters
-        ----------
-        include_sample_calls : bool | str, optional
-            Whether to include the sample calls in the configuration.
-            Default is True. If True, and if the sampler has a sample method
-            with a calls attribute, the calls will be included in the config
-            under the key "sample_calls". If this fails for any reason, a
-            warning will be logged and the sample calls will be omitted.
-        """
+        """Return sampler identification and optionally tracked sample calls."""
         config = {"sampler_class": self.__class__.__name__}
-        if include_sample_calls is not False:
-            if include_sample_calls is True:
-                include_sample_calls = "all"
-            if not isinstance(include_sample_calls, str):
-                raise ValueError(
-                    "include_sample_calls must be a string ('last' or 'all') or False."
-                    f"Received: {include_sample_calls} of type {type(include_sample_calls)}"
-                )
+        if include_sample_calls is False:
+            return config
+        if include_sample_calls is True:
+            include_sample_calls = "all"
+        if not isinstance(include_sample_calls, str):
+            raise ValueError(
+                "include_sample_calls must be 'last', 'all', or False; "
+                f"received {include_sample_calls!r}"
+            )
 
-            calls = getattr(self.sample, "calls", None)
-            if calls is None:
-                logger.warning(
-                    "Sampler does not have a sample method with calls attribute."
-                )
-                return config
-            if include_sample_calls.lower() == "last":
-                config["sample_calls"] = {
-                    "args": calls.args[-1] if calls.args else None,
-                    "kwargs": calls.kwargs[-1] if calls.kwargs else None,
-                }
-            elif include_sample_calls.lower() == "all":
-                try:
-                    config["sample_calls"] = self.sample.calls.to_dict(
-                        list_to_dict=True
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to include sample calls in config_dict: {e}"
-                    )
-            else:
-                raise ValueError(
-                    "Invalid value for include_sample_calls. Must be 'last', 'all', or False."
-                )
+        calls = getattr(self.sample, "calls", None)
+        if calls is None:
+            logger.warning(
+                "Sampler does not have a sample method with calls attribute."
+            )
+            return config
+        if include_sample_calls.lower() == "last":
+            call_kwargs = dict(calls.kwargs[-1]) if calls.kwargs else None
+            if call_kwargs is not None:
+                for runtime_key in (
+                    "callbacks",
+                    "checkpoint_callback",
+                    "resume_from",
+                ):
+                    call_kwargs.pop(runtime_key, None)
+            config["sample_calls"] = {
+                "args": calls.args[-1] if calls.args else None,
+                "kwargs": call_kwargs,
+            }
+        elif include_sample_calls.lower() == "all":
+            call_history = calls.to_dict(list_to_dict=True)
+            for call_kwargs in call_history["kwargs"].values():
+                for runtime_key in (
+                    "callbacks",
+                    "checkpoint_callback",
+                    "resume_from",
+                ):
+                    call_kwargs.pop(runtime_key, None)
+            config["sample_calls"] = call_history
         else:
-            logger.debug(
-                "Not including sample calls in config_dict as include_sample_calls is False."
+            raise ValueError(
+                "include_sample_calls must be 'last', 'all', or False"
             )
         return config
 
-    # --- Checkpointing helpers shared across samplers ---
-    def _checkpoint_extra_state(self) -> dict:
-        """Sampler-specific extras for checkpointing (override in subclasses)."""
-        return {}
-
-    def _restore_extra_state(self, state: dict) -> None:
-        """Restore sampler-specific extras (override in subclasses)."""
-        _ = state  # no-op for base
-
-    def build_checkpoint_state(
-        self,
-        samples: Samples,
-        iteration: int | None = None,
-        meta: dict | None = None,
-        include_sample_calls: str | bool = "last",
-    ) -> dict:
-        """Prepare a serializable checkpoint payload for the sampler state."""
-        checkpoint_samples = samples
-        base_state = {
-            "sampler": self.__class__.__name__,
-            "iteration": iteration,
-            "samples": checkpoint_samples,
-            "config": self.config_dict(
-                include_sample_calls=include_sample_calls
-            ),
-            "parameters": self.parameters,
-            "meta": meta or {},
-        }
-        base_state.update(self._checkpoint_extra_state())
-        return base_state
-
-    def serialize_checkpoint(
-        self, state: dict, protocol: int | None = None
-    ) -> bytes:
-        """Serialize a checkpoint state to bytes with pickle."""
-        protocol = (
-            pickle.HIGHEST_PROTOCOL if protocol is None else int(protocol)
-        )
-        return pickle.dumps(state, protocol=protocol)
-
-    def default_checkpoint_callback(self, state: dict) -> None:
-        """Store the latest checkpoint (state + pickled bytes) on the sampler."""
-        self._last_checkpoint_state = state
-        self._last_checkpoint_bytes = self.serialize_checkpoint(state)
-
-    def default_file_checkpoint_callback(
-        self, file_path: str | Path | None
-    ) -> Callable[[dict], None]:
-        """Return a simple default callback that overwrites an HDF5 file."""
-        if file_path is None:
-            return self.default_checkpoint_callback
-        file_path = Path(file_path)
-        lower_path = file_path.name.lower()
-        if not lower_path.endswith((".h5", ".hdf5")):
-            raise ValueError(
-                "Checkpoint file must be an HDF5 file (.h5 or .hdf5)."
-            )
-
-        def _callback(state: dict) -> None:
-            with AspireFile(file_path, "a") as h5_file:
-                self.save_checkpoint_to_hdf(
-                    state, h5_file, path="checkpoint", dsetname="state"
-                )
-            self.default_checkpoint_callback(state)
-
-        return _callback
-
-    def save_checkpoint_to_hdf(
-        self,
-        state: dict,
-        h5_file,
-        path: str = "sampler_checkpoints",
-        dsetname: str | None = None,
-        protocol: int | None = None,
-    ) -> None:
-        """Save a checkpoint state into an HDF5 file as a pickled blob."""
-        if dsetname is None:
-            iter_str = state.get("iteration", "unknown")
-            dsetname = f"iter_{iter_str}"
-        dump_state(
-            state,
-            h5_file,
-            path=path,
-            dsetname=dsetname,
-            protocol=protocol or pickle.HIGHEST_PROTOCOL,
+    def _array_samples(self, particles) -> Samples:
+        return Samples(
+            particles,
+            parameters=self.parameters,
+            xp=array_namespace(particles),
         )
 
-    def load_checkpoint_from_file(
-        self,
-        file_path: str | Path,
-        h5_path: str = "checkpoint",
-        dsetname: str = "state",
-    ) -> dict:
-        """Load a checkpoint dictionary from .pkl or .hdf5 file."""
-        file_path = Path(file_path)
-        lower_path = file_path.name.lower()
-        if lower_path.endswith((".h5", ".hdf5")):
-            with AspireFile(file_path, "r") as h5_file:
-                data = h5_file[h5_path][dsetname][...]
-                checkpoint_bytes = data.tobytes()
-        else:
-            with open(file_path, "rb") as f:
-                checkpoint_bytes = f.read()
-        return pickle.loads(checkpoint_bytes)
+    def _log_prior_array(self, particles):
+        return self.log_prior(self._array_samples(particles))
 
-    def restore_from_checkpoint(
-        self, source: str | bytes | dict
-    ) -> tuple[Samples, dict]:
-        """Restore sampler state from a checkpoint source."""
-        if isinstance(source, str):
-            state = self.load_checkpoint_from_file(source)
-        elif isinstance(source, bytes):
-            state = pickle.loads(source)
-        elif isinstance(source, dict):
-            state = source
-        else:
-            raise TypeError("Unsupported checkpoint source type.")
+    def _log_likelihood_array(self, particles):
+        return self.log_likelihood(self._array_samples(particles))
 
-        samples_saved = state.get("samples")
-        if samples_saved is None:
-            raise ValueError("Checkpoint missing samples.")
-
-        samples = Samples.from_samples(
-            samples_saved, xp=self.xp, dtype=self.dtype
+    def _log_posterior_array(self, particles):
+        return self._log_prior_array(particles) + self._log_likelihood_array(
+            particles
         )
-        # Allow subclasses to restore sampler-specific components
-        self._restore_extra_state(state)
-        return samples, state
 
-    @property
-    def last_checkpoint_state(self) -> dict | None:
-        """Return the most recent checkpoint state stored by the default callback."""
-        return self._last_checkpoint_state
+    def _proposal(self):
+        return self.prior_proposal
 
-    @property
-    def last_checkpoint_bytes(self) -> bytes | None:
-        """Return the most recent pickled checkpoint produced by the default callback."""
-        return self._last_checkpoint_bytes
+    def _particle_transform(self):
+        return self.preconditioning_transform
+
+    def _checkpoint_writers(self, file_path, every, callback=None):
+        every = every or 1
+        writers = []
+        if file_path is not None:
+            writers.append(HDF5CheckpointWriter(file_path, every=every))
+        if callback is not None:
+            writers.append(CallbackCheckpointWriter(callback, every=every))
+        return writers
+
+    def _initial_state(self, n_particles, posterior=None, *, rng=None):
+        state = draw_initial_state(
+            self._proposal(),
+            n_particles,
+            posterior=posterior,
+            rng=rng,
+            xp=self.xp,
+        )
+        return self._validate_initial_state(state)
+
+    def _validate_initial_state(self, state):
+        self.prior_proposal._validate(state.particles)
+        return state
+
+    def _mcmc_initial_state(self, n_particles, *, rng=None):
+        state = draw_mcmc_initial_state(
+            self._proposal(),
+            n_particles,
+            self._log_posterior_array,
+            rng=rng,
+            xp=self.xp,
+        )
+        return self._validate_initial_state(state)
+
+
+__all__ = [
+    "CallbackCheckpointWriter",
+    "Sampler",
+    "load_checkpoint",
+]

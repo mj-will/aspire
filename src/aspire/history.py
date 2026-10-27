@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any, Callable, Sequence
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
+from sequince.steps.mutation.metrics import MutationMetricsOutput
 
 from .samples import SMCSamples
 from .utils import load_from_h5_file, recursively_save_to_h5_file
@@ -76,9 +79,91 @@ class SMCHistory(History):
     ess: list[float] = field(default_factory=list)
     ess_target: list[float] = field(default_factory=list)
     eff_target: list[float] = field(default_factory=list)
-    mcmc_autocorr: list[float] = field(default_factory=list)
+    mcmc_autocorr: list[Any] = field(default_factory=list)
     mcmc_acceptance: list[float] = field(default_factory=list)
     sample_history: list[SMCSamples] = field(default_factory=list)
+
+    @classmethod
+    def from_sequince_result(
+        cls,
+        result,
+        *,
+        sample_history: Sequence[SMCSamples] = (),
+        target_efficiency: Callable[[float], float] | None = None,
+    ) -> "SMCHistory":
+        """Build Aspire's legacy SMC diagnostics from a Sequince result."""
+        history = cls(sample_history=list(sample_history))
+        previous_log_evidence = (
+            float(result.initial_state.log_evidence)
+            if result.initial_state is not None
+            else 0.0
+        )
+
+        for index, state in enumerate(result.states):
+            metadata = state.metadata
+            beta = float(metadata.get("beta", 0.0))
+            history.beta.append(beta)
+            history.log_norm_ratio.append(
+                float(
+                    metadata.get(
+                        "log_normalizing_constant_increment",
+                        state.log_evidence - previous_log_evidence,
+                    )
+                )
+            )
+            history.log_norm_ratio_var.append(
+                float(
+                    metadata.get(
+                        "log_normalizing_constant_increment_variance",
+                        float("nan"),
+                    )
+                )
+            )
+            history.ess.append(
+                float(
+                    metadata.get(
+                        "ess_before_resampling",
+                        state.effective_sample_size(),
+                    )
+                )
+            )
+            history.ess_target.append(
+                float(
+                    metadata.get(
+                        "ess_at_max_beta",
+                        float("nan"),
+                    )
+                )
+            )
+            history.eff_target.append(
+                float(
+                    target_efficiency(beta)
+                    if target_efficiency is not None
+                    else metadata.get("target_ess_ratio", float("nan"))
+                )
+            )
+
+            mutation_output = next(
+                (
+                    output
+                    for output in reversed(result.outputs[index])
+                    if isinstance(output, Mapping)
+                    and isinstance(
+                        output.get("metrics"), MutationMetricsOutput
+                    )
+                ),
+                None,
+            )
+            if mutation_output is not None:
+                metrics = mutation_output["metrics"]
+                history.mcmc_acceptance.append(float(metrics.acceptance))
+                autocorrelation = mutation_output.get("autocorrelation_time")
+                if autocorrelation is not None:
+                    history.mcmc_autocorr.append(autocorrelation)
+
+            previous_log_evidence = float(state.log_evidence)
+
+        return history
 
     def save(self, h5_file, path="smc_history"):
         """Save the history to an HDF5 file.

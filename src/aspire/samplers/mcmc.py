@@ -1,368 +1,112 @@
-import logging
-from typing import Callable
+from __future__ import annotations
 
-import numpy as np
-from orng import RandomGenerator
+from array_api_compat import array_namespace
+from sequince import make_mcmc
+from sequince.utils.random import resolve_rng
 
-from ..samples import MCMCSamples, Samples, to_numpy
-from ..utils import AspireFile, track_calls
-from .base import Sampler
-
-logger = logging.getLogger(__name__)
+from ..samples import MCMCSamples, Samples
+from ..utils import track_calls
+from .base import Sampler, load_checkpoint
 
 
 class MCMCSampler(Sampler):
-    """Base class for MCMC samplers."""
+    """Standalone MCMC whose execution and checkpointing are owned by Sequince."""
 
-    chain_checkpoint_path = "checkpoint"
-    """Path within checkpoint file to save MCMC chain checkpoints.
-
-    The default is "checkpoint".
-    """
-    chain_dataset_name = "mcmc_chain"
-    """Name of chain entry within checkpoint file to save MCMC checkpoints."""
-
-    def __init__(
-        self,
-        log_likelihood,
-        log_prior,
-        dims,
-        prior_flow,
-        xp,
-        dtype=None,
-        parameters=None,
-        preconditioning_transform=None,
-        rng=None,
-    ):
-        super().__init__(
-            log_likelihood,
-            log_prior,
-            dims,
-            prior_flow,
-            xp,
-            dtype,
-            parameters,
-            preconditioning_transform,
-        )
-        self.rng = rng or RandomGenerator(backend=self.backend_str)
-
-    def draw_initial_samples(self, n_samples: int) -> Samples:
-        """Draw initial samples from the prior flow.
-
-        Parameters
-        ----------
-        n_samples : int
-            The number of samples to draw.
-
-        Returns
-        -------
-        Samples
-            The drawn samples, with log probabilities, log prior, and log likelihood.
-        """
-        # Flow may propose samples outside prior bounds, so we may need
-        # to try multiple times to get enough valid samples.
-        n_samples_drawn = 0
-        samples = None
-        while n_samples_drawn < n_samples:
-            x, log_q = self.prior_flow.sample_and_log_prob(n_samples)
-            if not self.prior_flow.xp.isfinite(log_q).all():
-                raise ValueError(
-                    "Proposal returned non-finite log probabilities. "
-                    "aspire assumes the proposal is a valid, normalized "
-                    "probability distribution and should therefore only "
-                    "return samples with finite log probabilities."
-                )
-            new_samples = Samples(
-                x,
-                xp=self.xp,
-                log_q=log_q,
-                dtype=self.dtype,
-                parameters=self.parameters,
-            )
-            new_samples.log_prior = new_samples.array_to_namespace(
-                self.log_prior(new_samples)
-            )
-            new_samples.log_likelihood = new_samples.array_to_namespace(
-                self.log_likelihood(new_samples)
-            )
-            valid = self.xp.isfinite(new_samples.log_prior) & self.xp.isfinite(
-                new_samples.log_likelihood
-            )
-            if any(~valid):
-                logger.debug(
-                    f"Proposal returned {int(~valid.sum())} invalid samples "
-                    f"with non-finite log prior or log likelihood. "
-                    f"These samples will be discarded."
-                )
-            n_valid = int(self.xp.sum(valid))
-            if n_valid > 0:
-                if samples is None:
-                    samples = new_samples[valid]
-                else:
-                    samples = Samples.concatenate(
-                        [samples, new_samples[valid]]
-                    )
-                n_samples_drawn += n_valid
-
-        if n_samples_drawn > n_samples:
-            samples = samples[:n_samples]
-
-        return samples
-
-    def log_prob(self, z):
-        """Compute the log probability of the samples.
-
-        Input samples are in the transformed space.
-        """
-        x, log_abs_det_jacobian = self.preconditioning_transform.inverse(z)
-        samples = Samples(x, xp=self.xp, dtype=self.dtype)
-        samples.log_prior = self.log_prior(samples)
-        samples.log_likelihood = self.log_likelihood(samples)
-        log_prob = (
-            samples.log_likelihood
-            + samples.log_prior
-            + samples.array_to_namespace(log_abs_det_jacobian)
-        )
-        return log_prob.flatten()
-
-    def default_mcmc_chain_file_checkpoint_callback(
-        self, file_path: str | None
-    ) -> Callable[[dict], None]:
-        """Return a callback that saves MCMC checkpoints as native HDF5 samples."""
-        if file_path is None:
-            return self.default_checkpoint_callback
-        callback = self.default_file_checkpoint_callback(file_path)
-        _ = callback  # validates extension and path early
-
-        def _mcmc_chain_callback(state: dict) -> None:
-            samples = state.get("samples")
-            if samples is None:
-                raise ValueError("Checkpoint missing samples.")
-            chain_path = (
-                f"{self.chain_checkpoint_path}/{self.chain_dataset_name}"
-            )
-            with AspireFile(file_path, "a") as h5_file:
-                if chain_path in h5_file:
-                    del h5_file[chain_path]
-                samples.save(h5_file, path=chain_path, flat=False)
-                group = h5_file[chain_path]
-                if (
-                    hasattr(samples, "chain_shape")
-                    and samples.chain_shape is not None
-                ):
-                    group.attrs["chain_shape"] = np.asarray(
-                        samples.chain_shape, dtype=int
-                    )
-                iteration = state.get("iteration")
-                if iteration is not None:
-                    group.attrs["iteration"] = int(iteration)
-                stage = state.get("meta", {}).get("stage")
-                if stage is not None:
-                    group.attrs["stage"] = str(stage)
-                sampler_name = state.get("sampler")
-                if sampler_name is not None:
-                    group.attrs["sampler"] = str(sampler_name)
-            self.default_checkpoint_callback(state)
-
-        return _mcmc_chain_callback
-
-    def checkpoint_mcmc_chain(
-        self,
-        samples: Samples,
-        iteration: int | None = None,
-        checkpoint_callback: Callable[[dict], None] | None = None,
-        checkpoint_every: int | None = None,
-        checkpoint_file_path: str | None = None,
-    ) -> None:
-        """Save an MCMC chain checkpoint."""
-        if checkpoint_every is not None and checkpoint_every <= 0:
-            return
-        if checkpoint_callback is None and checkpoint_file_path is not None:
-            checkpoint_callback = (
-                self.default_mcmc_chain_file_checkpoint_callback(
-                    checkpoint_file_path
-                )
-            )
-        if checkpoint_callback is None:
-            return
-        state = self.build_checkpoint_state(
-            samples=samples, iteration=iteration, meta={"stage": "mcmc_chain"}
-        )
-        checkpoint_callback(state)
-
-
-class NumpyMCMCSampler(MCMCSampler):
-    """MCMCSampler that maps samples and log probabilities to NumPy arrays for
-    compatibility with numpy-only samplers
-    """
-
-    def log_prob(self, z):
-        return to_numpy(super().log_prob(z))
-
-
-class Emcee(NumpyMCMCSampler):
-    @track_calls
-    def sample(
-        self,
-        n_samples: int = None,
-        nwalkers: int = None,
-        nsteps: int = 500,
-        rng=None,
-        discard=0,
-        checkpoint_callback: Callable[[dict], None] | None = None,
-        checkpoint_every: int | None = None,
-        checkpoint_file_path: str | None = None,
-        **kwargs,
-    ) -> Samples:
-        from emcee import EnsembleSampler
-
-        nwalkers = nwalkers or n_samples
-        self.sampler = EnsembleSampler(
-            nwalkers,
-            self.dims,
-            log_prob_fn=self.log_prob,
-            vectorize=True,
-        )
-
-        rng = rng or self.rng or np.random.default_rng()
-
-        samples = self.draw_initial_samples(nwalkers)
-        p0 = samples.x
-
-        z0 = to_numpy(self.preconditioning_transform.fit(p0))
-
-        self.sampler.run_mcmc(z0, nsteps, **kwargs)
-
-        chain = self.sampler.get_chain(discard=discard)
-
-        # Transform chain back to original space
-        chain_z = chain.reshape(-1, self.dims)
-        chain_x, log_jacobian = self.preconditioning_transform.inverse(chain_z)
-        chain_x = chain_x.reshape(chain.shape)
-        # Create MCMCSamples
-        samples_mcmc = MCMCSamples.from_chain(
-            chain=chain_x,
-            parameters=self.parameters,
-            xp=self.xp,
-            dtype=self.dtype,
-            burn_in=discard,
-        )
-        self.checkpoint_mcmc_chain(
-            samples=samples_mcmc,
-            iteration=nsteps,
-            checkpoint_callback=checkpoint_callback,
-            checkpoint_every=checkpoint_every,
-            checkpoint_file_path=checkpoint_file_path,
-        )
-
-        if n_samples is not None:
-            logger.info(
-                f"Subsampling MCMC samples to {n_samples} samples after burn-in."
-            )
-            samples_mcmc = samples_mcmc[:n_samples]
-
-        return samples_mcmc
-
-
-class MiniPCN(MCMCSampler):
     @track_calls
     def sample(
         self,
         n_samples: int | None = None,
         n_walkers: int | None = None,
+        nwalkers: int | None = None,
+        n_steps: int = 100,
+        nsteps: int | None = None,
+        thin: int = 1,
+        burnin: int = 0,
+        discard: int | None = None,
+        last_step_only: bool = False,
         rng=None,
-        target_acceptance_rate=0.234,
-        n_steps=100,
-        thin=1,
-        burnin=0,
-        last_step_only=False,
-        step_fn="tpcn",
-        checkpoint_callback: Callable[[dict], None] | None = None,
+        callbacks=None,
+        checkpoint_callback=None,
         checkpoint_every: int | None = None,
         checkpoint_file_path: str | None = None,
+        resume_from=None,
+        **mutation_kwargs,
     ):
-        from minipcn import Sampler
-        from orng import RandomGenerator
+        if nsteps is not None:
+            n_steps = nsteps
+        if discard is not None:
+            burnin = discard
+        walkers = n_walkers or nwalkers or n_samples
+        if walkers is None:
+            raise ValueError("n_samples or a walker count must be provided.")
 
-        rng = rng or self.rng or RandomGenerator(backend=self.backend_str)
-        n_walkers = n_walkers or n_samples
-        p0 = self.draw_initial_samples(n_walkers).x
+        rng = resolve_rng(rng, xp=self.xp)
 
-        z0 = self.preconditioning_transform.fit(p0)
+        progress = mutation_kwargs.pop("progress", None)
+        if progress is not None and self.mutation == "emcee":
+            mutation_kwargs.setdefault("run_kwargs", {})["progress"] = progress
 
-        self.sampler = Sampler(
-            log_prob_fn=self.log_prob,
-            step_fn=step_fn,
-            rng=rng,
-            dims=self.dims,
-            target_acceptance_rate=target_acceptance_rate,
-            xp=self.xp,
+        mcmc = make_mcmc(
+            self._log_posterior_array,
+            mutation=self.mutation,
+            n_steps=n_steps,
+            mutation_kwargs=mutation_kwargs,
+            particle_transform=self._particle_transform(),
+            callbacks=callbacks,
+            checkpoint_writers=self._checkpoint_writers(
+                checkpoint_file_path,
+                checkpoint_every,
+                checkpoint_callback,
+            ),
         )
-
-        chain, history = self.sampler.sample(z0, n_steps=n_steps)
-        _ = history
-
-        # Transform the full chain back to original space once so checkpoints
-        # always capture pre-burn/pre-thin samples.
-        chain_z_full = chain.reshape(-1, self.dims)
-        chain_x_full, _ = self.preconditioning_transform.inverse(chain_z_full)
-        chain_x_full = chain_x_full.reshape(chain.shape)
-        full_chain_samples = MCMCSamples.from_chain(
-            chain=chain_x_full,
-            parameters=self.parameters,
-            xp=self.xp,
-            dtype=self.dtype,
-            thin=1,
-            burn_in=0,
-        )
-        self.checkpoint_mcmc_chain(
-            samples=full_chain_samples,
-            iteration=n_steps,
-            checkpoint_callback=checkpoint_callback,
-            checkpoint_every=checkpoint_every,
-            checkpoint_file_path=checkpoint_file_path,
-        )
-
-        if last_step_only:
-            x = chain_x_full[-1]
-            samples_mcmc = Samples(
-                x, xp=self.xp, dtype=self.dtype, parameters=self.parameters
-            )
-            samples_mcmc.log_prior = samples_mcmc.array_to_namespace(
-                self.log_prior(samples_mcmc)
-            )
-            samples_mcmc.log_likelihood = samples_mcmc.array_to_namespace(
-                self.log_likelihood(samples_mcmc)
+        if resume_from is None:
+            result = mcmc.run(
+                self._mcmc_initial_state(walkers, rng=rng),
+                rng=rng,
             )
         else:
-            # Apply burn-in and thinning to the full chain for returned samples.
-            samples_mcmc = full_chain_samples.post_process(
-                burn_in=burnin, thin=thin
+            result = mcmc.run(
+                runtime=mcmc.resume_from(load_checkpoint(resume_from))
             )
-            if n_samples is not None:
-                logger.info(
-                    f"Subsampling MCMC samples to {n_samples} samples after burn-in and thinning."
-                )
-                samples_mcmc = samples_mcmc[:n_samples]
 
-        return samples_mcmc
+        self.result = result
+        self.history = result
+        chain = result.samples(burn_in=burnin, thin=thin, flat=False)
+        if last_step_only:
+            particles = chain[-1]
+            samples = Samples(
+                x=particles,
+                parameters=self.parameters,
+                xp=array_namespace(particles),
+                dtype=self.dtype,
+            )
+            samples.log_prior = samples.array_to_namespace(
+                self.log_prior(samples)
+            )
+            samples.log_likelihood = samples.array_to_namespace(
+                self.log_likelihood(samples)
+            )
+            return samples
+
+        samples = MCMCSamples.from_chain(
+            chain,
+            parameters=self.parameters,
+            xp=array_namespace(chain),
+            dtype=self.dtype,
+            thin=thin,
+            burn_in=burnin,
+        )
+        return samples if n_samples is None else samples[:n_samples]
 
 
-class ParallelTemperedMCMCSampler(MCMCSampler):
-    """Wrapper for Parallel Tempered MCMC Samplers"""
+class MiniPCN(MCMCSampler):
+    """Sequince-backed MiniPCN MCMC."""
 
-    def log_likelihood_wrapper(self, z):
-        """Wrapper for log-likelihood that takes array inputs."""
-        x, _ = self.preconditioning_transform.inverse(z)
-        samples = Samples(x, xp=self.xp, dtype=self.dtype)
-        samples.log_prior = self.log_prior(samples)
-        samples.log_likelihood = self.log_likelihood(samples)
-        return to_numpy(samples.log_likelihood)
 
-    def log_prior_wrapper(self, z):
-        """Wrapper for log-prior that takes array inputs."""
-        x, log_abs_det_jacobian = self.preconditioning_transform.inverse(z)
-        samples = Samples(x, xp=self.xp, dtype=self.dtype)
-        # Skip Jacobian to avoid double counting in log_prior and
-        # log_likelihood
-        return self.log_prior(samples) + log_abs_det_jacobian
+class Emcee(MCMCSampler):
+    """Sequince-backed emcee MCMC."""
+
+    mutation = "emcee"
+
+
+__all__ = ["Emcee", "MCMCSampler", "MiniPCN"]
