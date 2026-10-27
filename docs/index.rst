@@ -9,9 +9,9 @@ MCMC or importance samplers, and visualise or export the resulting samples.
 Key capabilities
 ----------------
 
-- Fit flow-based proposals (PyTorch or JAX backends) with automatic handling of
-  bounded and periodic parameters.
-- Run adaptive SMC (MiniPCN or BlackJAX kernels) and importance sampling with
+- Fit flow-based proposals (PyTorch or JAX backends) with bounded transforms.
+  Periodic wrapping is available for standard sampler preconditioning.
+- Run Sequince-backed adaptive SMC and MCMC, or importance sampling, with
   detailed diagnostic histories.
 - Inspect results via convenience helpers for evidence estimates, corner plots,
   and HDF5/JSON export.

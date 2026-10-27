@@ -126,13 +126,15 @@ fit_history.plot_loss().savefig(outdir / "loss.png")
 samples, history = aspire.sample_posterior(
     sampler="blackjax_smc",  # use the BlackJAX SMC sampler
     n_samples=500,  # Number of particles in SMC
-    n_final_samples=5000,  # Number of samples to draw from the final distribution
+    n_final_samples=2000,  # Number of samples to draw from the final distribution
     adaptive=True,
     target_efficiency=0.8,
     sampler_kwargs=dict(  # Keyword arguments for the specific sampler
         algorithm="nuts",  # Use NUTS within SMC
-        step_size=0.1,  # Step size for NUTS, this will need tuning
-        n_steps=20,  # Number of leapfrog steps for NUTS
+        n_steps=4,  # BlackJAX transitions per SMC iteration
+        algorithm_kwargs=dict(
+            step_size=0.1,  # Step size for NUTS, this will need tuning
+        ),
     ),
     preconditioning_kwargs=dict(
         affine_transform=True,  # Use affine transform preconditioning

@@ -7,6 +7,36 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
+### Changed
+
+- Delegate SMC and MCMC execution and runtime checkpoints to Sequince, and flow
+  implementations to Sequince Density. Sampling trajectories and checkpoint
+  formats differ from previous Aspire releases; legacy flow and sampler
+  extension interfaces require migration.
+- Require Sequince 0.1.0b1 or newer and adapt sampler histories to its beta,
+  normalizing-constant, and mutation-metric interfaces.
+- Treat `max_n_steps` as an iteration limit and report intermediate beta when
+  it is reached. Final populations are resampled, with additional mutation only
+  when increasing the final sample count.
+
+### Removed
+
+- Remove the legacy flow/transform modules and sampler extension helpers. Custom
+  flow and sampler plugins must adopt Sequince's protocols.
+- Stop accepting pre-migration sampler checkpoints and saved-flow groups. Refit
+  proposals and start new checkpoint files when migrating.
+
+### Fixed
+
+- Validate proposal event shapes before building target caches, including flat
+  proposal arrays.
+- Use the checkpoint's restored RNG stream for final posterior resampling.
+- Reject NaN and positive-infinite target evaluations while preserving negative
+  infinity as zero target density.
+- Reject periodic flow preconditioning until an invertible periodic transport
+  and consistent proposal density are available. Standard periodic sampler
+  wrapping remains available.
+
 ## [0.1.0] - 2026-08-03
 
 This is the first stable release of Aspire. See the prerelease entries below
