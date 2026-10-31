@@ -156,7 +156,32 @@ def load_checkpoint(
 
 
 class Sampler:
-    """Common Aspire sampler state and Sequince integration."""
+    """Base class for Aspire's Sequince-backed samplers.
+
+    Parameters
+    ----------
+    prior_flow : NormalizingFlow or FlowProposal
+        Fitted proposal providing particle samples and their log densities.
+        Samples must have shape ``(n_particles, dims)``.
+    log_likelihood : callable
+        Function accepting a ``BaseSamples`` container and returning one
+        log-likelihood value per particle as a backend-native array.
+    log_prior : callable
+        Function accepting a ``BaseSamples`` container and returning one
+        log-prior value per particle as a backend-native array.
+    dims : int
+        Number of parameter dimensions.
+    xp : module
+        Array API namespace used for sampling.
+    dtype : dtype, str or None, optional
+        Sample dtype. If None, use the backend's default dtype.
+    parameters : list[str] or None, optional
+        Names of the sampled parameters. Sample containers generate names
+        when none are supplied.
+    preconditioning_transform : ParticleTransform or None, optional
+        Sequince coordinate transform applied during mutation. None selects
+        an identity transform. The proposal flow remains in physical space.
+    """
 
     mutation = "minipcn"
     sample: Callable[..., BaseSamples]
@@ -207,7 +232,27 @@ class Sampler:
         self,
         include_sample_calls: str | bool = "last",
     ) -> dict[str, Any]:
-        """Return sampler identification and optionally tracked sample calls."""
+        """Return sampler identification and optionally tracked sample calls.
+
+        Parameters
+        ----------
+        include_sample_calls : bool or {'last', 'all'}, optional
+            Which calls to ``sample`` to include under ``sample_calls``.
+            The default, 'last', records only the most recent call. True
+            records all calls; False omits them. If call tracking is
+            unavailable, log a warning and omit the call history.
+
+        Returns
+        -------
+        dict[str, Any]
+            Sampler class name and any requested call arguments. Live
+            callbacks and resume state are excluded from saved arguments.
+
+        Raises
+        ------
+        ValueError
+            If ``include_sample_calls`` is not one of the supported values.
+        """
         config: dict[str, Any] = {"sampler_class": self.__class__.__name__}
         if include_sample_calls is False:
             return config

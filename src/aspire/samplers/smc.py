@@ -35,7 +35,35 @@ logger = logging.getLogger(__name__)
 
 
 class SMCSampler(Sampler):
-    """Bayesian SMC whose execution and checkpointing are owned by Sequince."""
+    """Sequential Monte Carlo sampler using Sequince's Bayesian pipeline.
+
+    Parameters
+    ----------
+    prior_flow : NormalizingFlow or FlowProposal
+        Fitted proposal in physical coordinates, providing samples of shape
+        ``(n_particles, dims)`` and their log densities.
+    log_likelihood : callable
+        Function mapping a ``BaseSamples`` container to an array of
+        per-particle log-likelihood values.
+    log_prior : callable
+        Function mapping a ``BaseSamples`` container to an array of
+        per-particle log-prior values.
+    dims : int
+        Number of parameter dimensions.
+    xp : module
+        Array API namespace used for sampling.
+    dtype : dtype, str or None, optional
+        Sample dtype. If None, use the backend's default dtype.
+    parameters : list[str] or None, optional
+        Parameter names. Sample containers generate names when omitted.
+    preconditioning_transform : ParticleTransform or None, optional
+        Transform used for mutation. None selects an identity transform.
+
+    Notes
+    -----
+    ``result`` retains the native Sequince result. ``history`` exposes
+    Aspire's SMC diagnostics and, when requested, particle populations.
+    """
 
     result: SMCResult
 
@@ -160,7 +188,88 @@ class SMCSampler(Sampler):
         store_sample_history: bool = True,
         beta_tolerance: float | None = None,
     ) -> SMCSamples:
-        """Sample with SMC; ``beta_tolerance`` is deprecated and ignored."""
+        """Draw samples using adaptive or fixed-schedule SMC.
+
+        Parameters
+        ----------
+        n_samples : int
+            Number of particles in the SMC population.
+        n_steps : int or None, optional
+            Number of tempering steps when ``adaptive=False``; required for
+            a fixed schedule. Adaptive runs select their own beta schedule.
+        adaptive : bool, optional
+            Adapt beta increments to the target ESS ratio. Default is True.
+        min_beta_step : float or None, optional
+            Minimum adaptive beta increment. None uses ``1e-8``. In the
+            current Sequince standard sampler, this also sets the beta-search
+            tolerance.
+        max_beta_step : float or None, optional
+            Maximum adaptive beta increment. None imposes no additional cap
+            beyond the remaining interval to beta one.
+        max_n_steps : int or None, optional
+            Maximum number of adaptive SMC iterations. None imposes no
+            iteration limit. Reaching the limit may return an intermediate
+            target with ``samples.beta < 1``; it does not force beta to one.
+        target_efficiency : float or tuple[float, float], optional
+            Target ESS ratio, default 0.5. A pair ``(start, end)`` selects
+            ``start + (end - start) * beta**target_efficiency_rate``.
+            Target ratios must lie in ``(0, 1]``.
+        target_efficiency_rate : float, optional
+            Exponent for a beta-dependent target efficiency. Default is 1.0.
+        n_final_samples : int or None, optional
+            Number of returned samples; None uses ``n_samples``. The final
+            population is resampled with replacement. Increasing its size
+            also applies additional mutation moves.
+        sampler_kwargs : dict[str, Any] or None, optional
+            Mutation options forwarded to Sequince. ``n_steps`` (or
+            ``nsteps``) sets mutation steps per SMC iteration, defaulting to
+            ``5 * dims``. ``n_final_steps`` controls additional mutation when
+            increasing the final sample count. Remaining options configure
+            the selected mutation backend.
+        rng : RandomGenerator, numpy.random.Generator, int or None, optional
+            Random generator or seed. When resuming, the checkpoint's saved
+            random stream is used, including for final posterior resampling.
+        callbacks : sequence of callable or None, optional
+            Native Sequince iteration callbacks receiving
+            ``(state, context, result)``. A callback may return an updated
+            context or None.
+        checkpoint_callback : callable or None, optional
+            Persistence callback receiving a committed ``SMCCheckpoint`` at
+            the checkpoint cadence. May be used alongside file checkpointing.
+        checkpoint_every : int or None, optional
+            Number of sampler iterations between checkpoints. None uses one
+            when a checkpoint file or callback is configured.
+        checkpoint_file_path : str, pathlib.Path or None, optional
+            Checkpoint destination. ``.h5``/``.hdf5`` selects HDF5;
+            ``.pkl``/``.pickle`` selects Sequince's native pickle format.
+            None disables file checkpointing.
+        resume_from : SMCCheckpoint, mapping, str, pathlib.Path or None, optional
+            Native checkpoint, its dictionary representation, or an HDF5 or
+            pickle checkpoint path. None starts a new run. Pre-migration
+            Aspire checkpoints are incompatible.
+        store_sample_history : bool, optional
+            Store particle populations in ``history.sample_history``.
+            Default is True. Diagnostic histories are retained when False.
+        beta_tolerance : float or None, optional
+            Legacy compatibility argument. Supplying a value emits a
+            ``DeprecationWarning``; it currently has no effect with this
+            adapter. Default is None.
+
+        Returns
+        -------
+        SMCSamples
+            Resampled particles of shape ``(n_final_samples, dims)`` with
+            target-density components, beta, log evidence, and its estimated
+            uncertainty. If stopped early, these describe the intermediate
+            tempered target rather than the full posterior.
+
+        Raises
+        ------
+        ValueError
+            If the schedule, proposal shape, target ESS ratio, or target
+            values are invalid. NaN and positive-infinite target values are
+            rejected; negative infinity represents zero target density.
+        """
         if beta_tolerance is not None:
             warnings.warn(
                 "beta_tolerance is deprecated and has no effect with the "

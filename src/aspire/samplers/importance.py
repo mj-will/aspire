@@ -17,6 +17,22 @@ if TYPE_CHECKING:
 class ImportanceSampler(Sampler):
     @track_calls
     def sample(self, n_samples: int, rng: RNGLike = None) -> Samples:
+        """Draw proposal samples and compute posterior importance weights.
+
+        Parameters
+        ----------
+        n_samples : int
+            Number of particles to draw from the fitted proposal.
+        rng : RandomGenerator, numpy.random.Generator, int or None, optional
+            Random generator or seed used to draw the proposal particles.
+
+        Returns
+        -------
+        Samples
+            Particles of shape ``(n_samples, dims)`` with proposal, prior,
+            and likelihood log densities, importance weights, and evidence
+            estimates.
+        """
         rng = resolve_rng(rng)
         posterior = TemperedPosterior(
             self._log_prior_array,

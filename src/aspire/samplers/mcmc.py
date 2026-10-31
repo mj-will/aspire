@@ -48,6 +48,72 @@ class MCMCSampler(Sampler):
         resume_from: CheckpointInput | None = None,
         **mutation_kwargs: Any,
     ) -> MCMCSamples | Samples:
+        """Run or resume a standalone Sequince MCMC chain.
+
+        Parameters
+        ----------
+        n_samples : int or None, optional
+            Maximum number of flattened samples to return. Also supplies the
+            walker count if neither ``n_walkers`` nor ``nwalkers`` is set.
+            None returns all retained samples and requires a walker count.
+            ``last_step_only=True`` overrides the returned sample-count limit.
+        n_walkers : int or None, optional
+            Number of walkers. Takes precedence over the other count options.
+        nwalkers : int or None, optional
+            Compatibility alias for the walker count.
+        n_steps : int, optional
+            Number of new chain steps per walker, default 100. Resuming
+            extends the stored chain by this many steps.
+        nsteps : int or None, optional
+            Compatibility alias overriding ``n_steps`` when supplied.
+        thin : int, optional
+            Retain every ``thin``-th chain step. Default is one.
+        burnin : int, optional
+            Number of initial chain steps to discard from the returned
+            samples. Default is zero.
+        discard : int or None, optional
+            Compatibility alias overriding ``burnin`` when supplied.
+        last_step_only : bool, optional
+            Return the last retained walker population as ``Samples``
+            instead of a flattened ``MCMCSamples`` container. Default is False.
+        rng : RandomGenerator, numpy.random.Generator, int or None, optional
+            Random generator or seed for a new run. A resumed run restores
+            its generator from the checkpoint.
+        callbacks : sequence of callable or None, optional
+            Native Sequince callbacks receiving ``(state, context, result)``
+            after each iteration. May return an updated context or None.
+        checkpoint_callback : callable or None, optional
+            Callback receiving a committed ``SMCCheckpoint`` at the configured
+            cadence. Sequince uses the same checkpoint type for SMC and MCMC.
+        checkpoint_every : int or None, optional
+            Number of iterations between checkpoints. None uses one when
+            a checkpoint destination or callback is configured.
+        checkpoint_file_path : str, pathlib.Path or None, optional
+            HDF5 (``.h5``/``.hdf5``) or pickle (``.pkl``/``.pickle``)
+            checkpoint destination. None disables file checkpointing.
+        resume_from : SMCCheckpoint, mapping, str, pathlib.Path or None, optional
+            Native checkpoint, its dictionary representation, or a checkpoint
+            file path. None starts a new chain. Legacy Aspire checkpoints
+            cannot be resumed.
+        **mutation_kwargs : Any
+            Options for the selected Sequince mutation backend. For emcee,
+            ``progress`` is forwarded to its run options. Chain-length and
+            mutation options are supplied directly to this method.
+
+        Returns
+        -------
+        MCMCSamples or Samples
+            Retained chain samples of shape ``(n_retained, dims)``, or the
+            last walker population of shape ``(n_walkers, dims)`` when
+            ``last_step_only=True``. The native chain and diagnostics remain
+            available through ``result`` and ``history``.
+
+        Raises
+        ------
+        ValueError
+            If no walker count or sample count is supplied, or if the
+            checkpoint, proposal, or target values are invalid.
+        """
         if nsteps is not None:
             n_steps = nsteps
         if discard is not None:
