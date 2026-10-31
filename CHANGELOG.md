@@ -7,6 +7,11 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
+### Changed
+
+- Require Sequince 0.1.0 or later with its MiniPCN extra so Aspire retains
+  its MiniPCN sampler dependency.
+
 ## [0.1.0] - 2026-08-03
 
 This is the first stable release of Aspire. See the prerelease entries below
