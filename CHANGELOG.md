@@ -9,8 +9,8 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ### Changed
 
-- Require Sequince 0.1.0 or later with its MiniPCN extra so Aspire retains
-  its MiniPCN sampler dependency.
+- Require Sequince 0.1.0 or later and keep MiniPCN optional through
+  `aspire-inference[minipcn]`.
 
 ## [0.1.0] - 2026-08-03
 
