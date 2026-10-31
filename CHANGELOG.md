@@ -7,6 +7,16 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
+### Changed
+
+- Require Sequince 0.1.0 or later and keep MiniPCN optional through
+  `aspire-inference[minipcn]`.
+
+### Fixed
+
+- Reject periodic parameter configurations without finite prior bounds instead
+  of silently omitting periodic wrapping in the Sequince transform helper.
+
 ## [0.1.0] - 2026-08-03
 
 This is the first stable release of Aspire. See the prerelease entries below

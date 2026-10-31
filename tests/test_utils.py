@@ -1,48 +1,197 @@
 import functools
+import io
+import logging
 import pickle
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import Mock
 
 import array_api_compat.numpy as np_xp
-import array_api_compat.torch as torch_xp
 import h5py
-import jax.numpy as jnp
 import pytest
 from array_api_compat import array_namespace
 
 from aspire.utils import (
     asarray,
+    build_particle_transform,
     configure_logger,
     convert_dtype,
     dump_state,
     function_id,
+    get_flow_class,
     resolve_dtype,
 )
 
 
-def _dtype_name(dtype):
-    if hasattr(dtype, "name") and dtype.name:
-        return dtype.name
-    if hasattr(dtype, "__name__"):
-        return dtype.__name__
-    text = str(dtype)
-    if text.startswith("<class '") and text.endswith("'>"):
-        text = text.split("'")[1]
-    if text.startswith("dtype(") and text.endswith(")"):
-        text = text[6:-1].strip("'\" ")
-    return text.split(".")[-1]
+@pytest.mark.parametrize(
+    ("backend", "module", "class_name"),
+    [
+        ("zuko", "sequince_density.flows.zuko", "ZukoFlow"),
+        ("flowjax", "sequince_density.flows.flowjax", "FlowJax"),
+    ],
+)
+def test_get_flow_class_builtin(
+    backend: str, module: str, class_name: str
+) -> None:
+    implementation = pytest.importorskip(module)
+    assert get_flow_class(backend) is getattr(implementation, class_name)
+    with pytest.raises(NotImplementedError, match="Flow matching"):
+        get_flow_class(backend, flow_matching=True)
+
+
+def test_get_flow_class_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
+    flow_class = type("PluginFlow", (), {"xp": np_xp})
+    load = Mock(return_value=flow_class)
+    entry_points = Mock(
+        return_value=[SimpleNamespace(name="Custom", load=load)]
+    )
+    monkeypatch.setattr("importlib.metadata.entry_points", entry_points)
+
+    assert get_flow_class("custom") is flow_class
+    entry_points.assert_called_once_with(group="aspire.flows")
+    load.assert_called_once_with()
+    with pytest.raises(NotImplementedError, match="Flow matching"):
+        get_flow_class("custom", flow_matching=True)
+
+
+@pytest.mark.parametrize("attributes", [{}, {"xp": None}])
+def test_get_flow_class_plugin_requires_namespace(
+    monkeypatch: pytest.MonkeyPatch, attributes: dict[str, Any]
+) -> None:
+    flow_class = type("PluginFlow", (), attributes)
+    entry_point = SimpleNamespace(
+        name="custom", load=Mock(return_value=flow_class)
+    )
+    monkeypatch.setattr(
+        "importlib.metadata.entry_points", lambda **kwargs: [entry_point]
+    )
+    with pytest.raises(ValueError, match="does not define an `xp` attribute"):
+        get_flow_class("custom")
+
+
+def test_get_flow_class_unknown_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry_point = SimpleNamespace(name="custom", load=Mock())
+    monkeypatch.setattr(
+        "importlib.metadata.entry_points", lambda **kwargs: [entry_point]
+    )
+    with pytest.raises(ValueError, match="Unknown backend 'missing'") as error:
+        get_flow_class("missing")
+    assert "['zuko', 'flowjax', 'custom']" in str(error.value)
+    entry_point.load.assert_not_called()
 
 
 @pytest.mark.parametrize(
-    ("source_dtype", "target_xp", "expected"),
+    "prior_bounds",
     [
-        (np_xp.dtype("float32"), torch_xp, torch_xp.float32),
-        (torch_xp.float64, np_xp, np_xp.dtype("float64")),
-        (jnp.float16, torch_xp, torch_xp.float16),
-        ("float32", jnp, jnp.dtype("float32")),
+        None,
+        {},
+        {"other": (0.0, 1.0)},
+        {"angle": (-np_xp.inf, 1.0)},
+        {"angle": (0.0, np_xp.inf)},
+        {"angle": (np_xp.nan, 1.0)},
+        {"angle": (0.0, np_xp.nan)},
+        {"angle": (0.0,)},
     ],
 )
-def test_convert_dtype_cross_namespace(source_dtype, target_xp, expected):
+def test_particle_transform_requires_finite_periodic_bounds(
+    prior_bounds: dict[str, tuple[float, ...]] | None,
+) -> None:
+    with pytest.raises(ValueError, match="Periodic parameter 'angle'.*finite"):
+        build_particle_transform(
+            parameters=["other", "angle"],
+            prior_bounds=prior_bounds,
+            periodic_parameters=["angle"],
+        )
+
+
+def test_particle_transform_validates_every_periodic_parameter() -> None:
+    with pytest.raises(ValueError, match="Periodic parameter 'second'"):
+        build_particle_transform(
+            parameters=["first", "second"],
+            prior_bounds={"first": (0.0, 1.0)},
+            periodic_parameters=["first", "second"],
+        )
+
+
+def test_particle_transform_rejects_undeclared_periodic_parameter() -> None:
+    with pytest.raises(ValueError, match="Periodic parameter 'angle'"):
+        build_particle_transform(
+            parameters=["other"],
+            prior_bounds={"angle": (0.0, 1.0)},
+            periodic_parameters=["angle"],
+        )
+
+
+def test_particle_transform_wraps_periodic_coordinates(xp: Any) -> None:
+    transform = build_particle_transform(
+        parameters=["angle", "other"],
+        prior_bounds={"angle": (0.0, 2.0)},
+        periodic_parameters=["angle"],
+        affine_transform=False,
+    )
+    particles = xp.asarray([[-0.5, 3.0], [2.5, -4.0]])
+    transformed, _, _ = transform.forward(particles)
+    expected = xp.asarray([[1.5, 3.0], [0.5, -4.0]])
+    assert bool(xp.all(xp.abs(transformed - expected) < 1e-7))
+
+
+def test_bounded_transform_preserves_custom_epsilon(xp: Any) -> None:
+    transform = build_particle_transform(
+        parameters=["x"],
+        prior_bounds={"x": (0.0, 1.0)},
+        affine_transform=False,
+        eps=0.01,
+    )
+    particles = xp.asarray([[0.0], [0.5], [1.0]], dtype=xp.float64)
+    transformed, log_det, auxiliary = transform.forward(particles)
+    limit = xp.log(xp.asarray(99.0, dtype=xp.float64))
+    expected = xp.reshape(xp.stack((-limit, limit * 0, limit)), (3, 1))
+    assert bool(xp.all(xp.abs(transformed - expected) < 1e-10))
+
+    restored, inverse_log_det = transform.inverse(
+        transformed, auxiliary=auxiliary
+    )
+    expected_particles = xp.asarray([[0.01], [0.5], [0.99]])
+    assert bool(xp.all(xp.abs(restored - expected_particles) < 1e-7))
+    assert bool(xp.all(xp.abs(log_det + inverse_log_det) < 1e-10))
+
+
+def _array_api(name):
+    if name == "numpy":
+        return np_xp
+    if name == "jax":
+        return pytest.importorskip("jax.numpy")
+    if name == "torch":
+        return pytest.importorskip("array_api_compat.torch")
+    raise ValueError(f"Unknown array API: {name}")
+
+
+@pytest.mark.parametrize(
+    ("source_api", "target_api", "dtype_name"),
+    [
+        ("numpy", "torch", "float32"),
+        ("torch", "numpy", "float64"),
+        ("jax", "torch", "float16"),
+    ],
+    ids=lambda value: value,
+)
+def test_convert_dtype_cross_namespace(source_api, target_api, dtype_name):
+    source_xp = _array_api(source_api)
+    target_xp = _array_api(target_api)
+    source_dtype = source_xp.asarray(
+        0, dtype=getattr(source_xp, dtype_name)
+    ).dtype
+    expected = target_xp.asarray(0, dtype=getattr(target_xp, dtype_name)).dtype
+
     converted = convert_dtype(source_dtype, target_xp)
-    assert _dtype_name(converted) == _dtype_name(expected)
+    assert converted == expected
+
+
+def test_convert_dtype_from_string():
+    jnp = _array_api("jax")
+    assert convert_dtype("float32", jnp) == jnp.float32
 
 
 def test_convert_dtype_same_namespace_returns_original():
@@ -52,31 +201,41 @@ def test_convert_dtype_same_namespace_returns_original():
 
 
 def test_convert_dtype_none_returns_none():
-    assert convert_dtype(None, torch_xp) is None
+    assert convert_dtype(None, np_xp) is None
 
 
 def test_convert_dtype_invalid_raises():
     with pytest.raises(ValueError):
-        convert_dtype("not_a_real_dtype", torch_xp)
+        convert_dtype("not_a_real_dtype", np_xp)
 
 
 @pytest.mark.parametrize(
-    ("value", "xp", "expected_name"),
+    ("api_name", "dtype_name"),
     [
-        ("float32", np_xp, "float32"),
-        ("float64", torch_xp, "float64"),
-        ("float16", jnp, "float16"),
-        (np_xp.dtype("int32"), np_xp, "int32"),
-        (torch_xp.float32, torch_xp, "float32"),
-        (jnp.dtype("float64"), jnp, "float64"),
+        ("numpy", "float32"),
+        ("torch", "float64"),
+        ("jax", "float16"),
     ],
+    ids=lambda value: value,
 )
-def test_resolve_dtype_matches_namespace(value, xp, expected_name):
-    resolved = resolve_dtype(value, xp)
-    assert _dtype_name(resolved) == expected_name
+def test_resolve_dtype_from_string(api_name, dtype_name):
+    xp = _array_api(api_name)
+    assert resolve_dtype(dtype_name, xp) == getattr(xp, dtype_name)
+
+
+@pytest.mark.parametrize(
+    ("api_name", "dtype_name"),
+    [("numpy", "int32"), ("torch", "float32"), ("jax", "float64")],
+    ids=lambda value: value,
+)
+def test_resolve_dtype_from_api_dtype(api_name, dtype_name):
+    xp = _array_api(api_name)
+    dtype = xp.asarray(0, dtype=getattr(xp, dtype_name)).dtype
+    assert resolve_dtype(dtype, xp) == dtype
 
 
 def test_resolve_dtype_passes_through_torch_dtype():
+    torch_xp = _array_api("torch")
     dtype = torch_xp.float32
     assert resolve_dtype(dtype, torch_xp) is dtype
 
@@ -87,18 +246,21 @@ def test_resolve_dtype_errors_on_unknown():
 
 
 @pytest.mark.parametrize(
-    ("xp_input", "xp_target"),
+    ("input_api", "target_api"),
     [
-        (np_xp, torch_xp),
-        (np_xp, jnp),
-        (torch_xp, jnp),
-        (torch_xp, np_xp),
-        (jnp, np_xp),
-        (jnp, torch_xp),
+        ("numpy", "torch"),
+        ("numpy", "jax"),
+        ("torch", "jax"),
+        ("torch", "numpy"),
+        ("jax", "numpy"),
+        ("jax", "torch"),
     ],
+    ids=lambda value: value,
 )
 @pytest.mark.parametrize("dtype", [None, "float32", "float64"])
-def test_asarray(xp_input, xp_target, dtype):
+def test_asarray(input_api, target_api, dtype):
+    xp_input = _array_api(input_api)
+    xp_target = _array_api(target_api)
     arr = xp_input.asarray([1, 2, 3])
     converted = asarray(arr, xp_target, dtype=dtype)
     namespace = array_namespace(converted)
@@ -111,8 +273,10 @@ def test_asarray(xp_input, xp_target, dtype):
     )
 
 
-@pytest.mark.parametrize("xp_target", [np_xp, jnp])
-def test_asarray_torch_grad(xp_target):
+@pytest.mark.parametrize("target_api", ["numpy", "jax"])
+def test_asarray_torch_grad(target_api):
+    torch_xp = _array_api("torch")
+    xp_target = _array_api(target_api)
     arr = torch_xp.tensor([1.0, 2.0, 3.0], requires_grad=True)
     converted = asarray(arr, xp_target)
     namespace = array_namespace(converted)
@@ -162,6 +326,23 @@ def test_configure_logger(tmp_path, caplog, log_file):
             logs = f.read()
         assert "This is a debug message." in logs
         assert "This is an info message." in logs
+
+
+def test_configure_logger_captures_sequince_by_default(monkeypatch):
+    stream = io.StringIO()
+    aspire_logger = logging.getLogger("aspire")
+    sequince_logger = logging.getLogger("sequince")
+    monkeypatch.setattr(aspire_logger, "handlers", [])
+    monkeypatch.setattr(sequince_logger, "handlers", [])
+    monkeypatch.setattr(sequince_logger, "propagate", True)
+
+    configure_logger(stream=stream)
+    logging.getLogger("sequince.steps.log").info("SMC iteration 1")
+
+    output = stream.getvalue()
+    assert "sequince.steps.log - INFO - SMC iteration 1" in output
+    assert sequince_logger.handlers == aspire_logger.handlers
+    assert sequince_logger.propagate is False
 
 
 def test_enable_scipy_array_api():
