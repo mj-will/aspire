@@ -4,6 +4,7 @@ import functools
 import importlib
 import inspect
 import logging
+import math
 import pickle
 import warnings
 from contextlib import contextmanager
@@ -30,6 +31,14 @@ from array_api_compat import (
     is_torch_namespace,
     to_device,
 )
+from sequince.transforms import (
+    AffineTransform,
+    BoundedToUnboundedTransform,
+    CompositeTransform,
+    IdentityTransform,
+    LogitMapping,
+    PeriodicBoundaryTransform,
+)
 
 if TYPE_CHECKING:
     from multiprocessing import Pool
@@ -53,12 +62,120 @@ IS_NAMESPACE_FUNCTIONS = {
 }
 
 
+def get_flow_class(backend: str = "zuko", flow_matching: bool = False) -> type:
+    """Resolve a density flow implementation by backend name."""
+    from importlib.metadata import entry_points
+
+    if backend == "zuko":
+        from sequince_density.flows.zuko import ZukoFlow
+
+        FlowClass = ZukoFlow
+    elif backend == "flowjax":
+        from sequince_density.flows.flowjax import FlowJax
+
+        FlowClass = FlowJax
+    else:
+        eps = {
+            ep.name.lower(): ep for ep in entry_points(group="aspire.flows")
+        }
+        if backend not in eps:
+            known_backends = ["zuko", "flowjax", *eps]
+            raise ValueError(
+                f"Unknown backend '{backend}'. "
+                f"Available backends: {known_backends}"
+            )
+        FlowClass = eps[backend].load()
+
+    if flow_matching:
+        raise NotImplementedError(
+            "Flow matching is not implemented by sequince-density."
+        )
+    if getattr(FlowClass, "xp", None) is None:
+        raise ValueError(
+            f"Flow class {backend} does not define an `xp` attribute"
+        )
+    return FlowClass
+
+
+def _indexed_bounds(parameters, prior_bounds, *, exclude=()):
+    if not parameters or not prior_bounds:
+        return {}
+    excluded = set(exclude or ())
+    return {
+        index: tuple(prior_bounds[parameter])
+        for index, parameter in enumerate(parameters)
+        if parameter not in excluded
+        and parameter in prior_bounds
+        and all(math.isfinite(value) for value in prior_bounds[parameter])
+    }
+
+
+def build_particle_transform(
+    *,
+    parameters,
+    prior_bounds,
+    periodic_parameters=None,
+    bounded_to_unbounded=True,
+    bounded_transform="logit",
+    affine_transform=True,
+    eps=1e-6,
+):
+    """Build a Sequince transform from Aspire's parameter configuration."""
+    transforms = []
+    periodic_parameters = periodic_parameters or []
+    for parameter in periodic_parameters:
+        bounds = (prior_bounds or {}).get(parameter)
+        if (
+            parameter not in (parameters or ())
+            or bounds is None
+            or len(bounds) != 2
+            or not all(math.isfinite(value) for value in bounds)
+        ):
+            raise ValueError(
+                f"Periodic parameter '{parameter}' requires a declared "
+                "parameter and finite lower and upper prior bounds."
+            )
+
+    periodic_bounds = _indexed_bounds(
+        parameters,
+        prior_bounds,
+        exclude=set(parameters or ()) - set(periodic_parameters),
+    )
+    if periodic_bounds:
+        transforms.append(PeriodicBoundaryTransform(periodic_bounds))
+
+    if bounded_to_unbounded:
+        if bounded_transform != "logit":
+            raise ValueError(
+                "Sequince bounded transforms currently support only 'logit'."
+            )
+        bounded = _indexed_bounds(
+            parameters,
+            prior_bounds,
+            exclude=periodic_parameters,
+        )
+        if bounded:
+            transforms.append(
+                BoundedToUnboundedTransform(bounded, mapping=LogitMapping(eps))
+            )
+
+    if affine_transform:
+        transforms.append(AffineTransform())
+
+    if not transforms:
+        return IdentityTransform()
+    if len(transforms) == 1:
+        return transforms[0]
+    return CompositeTransform(transforms)
+
+
 def configure_logger(
     log_level: str | int = "INFO",
     log_file: str | Path | None = None,
-    additional_loggers: list[str] = None,
+    additional_loggers: list[str] | None = None,
     include_aspire_loggers: bool = True,
-    stream: str | None = None,
+    stream: Any | None = None,
+    include_sequince_logger: bool = True,
 ) -> logging.Logger:
     """Configure the logger.
 
@@ -75,9 +192,12 @@ def configure_logger(
     include_aspire_loggers : bool, optional
         Whether to include all loggers that start with "aspire_" or "aspire-".
         Defaults to True.
-    stream : str, optional
+    stream : file-like object, optional
         The stream to use for the stream handler. Defaults to None, which uses
         sys.stderr.
+    include_sequince_logger : bool, optional
+        Whether to route Sequince log messages through the Aspire handlers.
+        Defaults to True.
 
     Returns
     -------
@@ -89,7 +209,7 @@ def configure_logger(
     ch = logging.StreamHandler(stream=stream)
     ch.setLevel(log_level)
     formatter = logging.Formatter(
-        "%(asctime)s - aspire - %(levelname)s - %(message)s"
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     ch.setFormatter(formatter)
     logger.addHandler(ch)
@@ -100,14 +220,16 @@ def configure_logger(
         fh.setFormatter(formatter)
         logger.addHandler(fh)
 
-    additional_loggers = additional_loggers or []
+    configured_loggers = list(additional_loggers or ())
+    if include_sequince_logger:
+        configured_loggers.append("sequince")
     for name in logger.manager.loggerDict:
         if include_aspire_loggers and (
             name.startswith("aspire_") or name.startswith("aspire-")
         ):
-            additional_loggers.append(name)
+            configured_loggers.append(name)
 
-    for name in additional_loggers:
+    for name in dict.fromkeys(configured_loggers):
         dep_logger = logging.getLogger(name)
         dep_logger.setLevel(log_level)
         dep_logger.handlers.clear()

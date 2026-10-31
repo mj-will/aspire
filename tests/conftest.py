@@ -28,9 +28,10 @@ def rng():
 @pytest.fixture(params=["jax", "torch", "numpy"])
 def xp(request):
     if request.param == "jax":
-        import jax.numpy as xp
+        xp = pytest.importorskip("jax.numpy")
     elif request.param == "torch":
-        import array_api_compat.torch as xp
+        pytest.importorskip("torch")
+        xp = pytest.importorskip("array_api_compat.torch")
     elif request.param == "numpy":
         import array_api_compat.numpy as xp
     else:

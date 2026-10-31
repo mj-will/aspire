@@ -22,7 +22,8 @@ dependencies = [
     "array-api-extra",
     "wrapt",
     "h5py",
-    "orng",
+    "sequince>=0.1.0",
+    "sequince-density>=0.1.0b1",
 ]
 
 dynamic = ["version"]
@@ -43,14 +44,13 @@ torch = [
     "tqdm",
 ]
 minipcn = [
-    "minipcn[array-api]>=0.2.0a3",
+    "sequince[minipcn]>=0.1.0",
 ]
 emcee = [
     "emcee",
 ]
 blackjax = [
-    "blackjax",
-    "fastprogress<1.1.0",
+    "blackjax>=1.2",
 ]
 test = [
     "pytest",
@@ -114,12 +114,15 @@ requires-pixi = ">=0.78"
 
 [tool.pixi.pypi-dependencies]
 aspire-inference = { path = ".", editable = true }
+# Sequince's required MiniPCN API is currently a prerelease. Request it
+# explicitly so Pixi permits this transitive prerelease without enabling all.
+minipcn = ">=0.3.0a1"
 
 [tool.pixi.environments]
-default = { features = ["py313", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax", "lint"], solve-group = "py313" }
-py311 = ["py311", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax"]
-py312 = ["py312", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax"]
-py313 = { features = ["py313", "test-core", "jax", "torch-cpu", "minipcn", "emcee", "blackjax"], solve-group = "py313" }
+default = { features = ["py313", "test-core", "jax", "torch-cpu", "emcee", "blackjax", "lint"], solve-group = "py313" }
+py311 = ["py311", "test-core", "jax", "torch-cpu", "emcee", "blackjax"]
+py312 = ["py312", "test-core", "jax", "torch-cpu", "emcee", "blackjax"]
+py313 = { features = ["py313", "test-core", "jax", "torch-cpu", "emcee", "blackjax"], solve-group = "py313" }
 docs = ["py313", "doc"]
 
 [tool.pixi.feature.py311.dependencies]
