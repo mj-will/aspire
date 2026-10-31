@@ -12,7 +12,8 @@ aspire is a framework for reusing existing posterior samples to obtain new resul
 
 aspire can be installed from PyPI using `pip`. By default, you need to install
 one of the backends for the normalizing flows, either `torch` or `jax`.
-Sequince and its default MiniPCN mutation backend are installed automatically.
+Sequince is installed automatically. Install the optional `minipcn` extra for
+Aspire's default `smc` sampler or the `minipcn` and `minipcn_smc` samplers.
 
 
 **Torch**
@@ -22,7 +23,7 @@ We recommend installing `torch` manually to ensure correct CPU/CUDA versions are
  for more details.
 
 ```
-pip install aspire-inference[torch]
+pip install "aspire-inference[torch,minipcn]"
 ```
 
 **Jax**:
@@ -31,7 +32,7 @@ We recommend install `jax` manually to ensure the correct GPU/CUDA versions
 are installed. See the [jax documentation for details](https://docs.jax.dev/en/latest/installation.html)
 
 ```
-pip install aspire-inference[jax,blackjax]
+pip install "aspire-inference[jax,blackjax,minipcn]"
 ```
 
 **Important:** the name of `aspire` on PyPI is `aspire-inference` but once installed

@@ -9,12 +9,14 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ### Changed
 
+- Require Sequince 0.1.0 or later and keep MiniPCN optional through
+  `aspire-inference[minipcn]`.
 - Delegate SMC and MCMC execution and runtime checkpoints to Sequince, and flow
   implementations to Sequince Density. Sampling trajectories and checkpoint
   formats differ from previous Aspire releases; legacy flow and sampler
   extension interfaces require migration.
-- Require Sequince 0.1.0b1 or newer and adapt sampler histories to its beta,
-  normalizing-constant, and mutation-metric interfaces.
+- Adapt sampler histories to Sequince's beta, normalizing-constant, and
+  mutation-metric interfaces.
 - Treat `max_n_steps` as an iteration limit and report intermediate beta when
   it is reached. Final populations are resampled, with additional mutation only
   when increasing the final sample count.

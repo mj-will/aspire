@@ -22,7 +22,7 @@ dependencies = [
     "array-api-extra",
     "wrapt",
     "h5py",
-    "sequince>=0.1.0b1",
+    "sequince>=0.1.0",
     "sequince-density>=0.1.0b1",
 ]
 
@@ -43,8 +43,9 @@ torch = [
     "zuko",
     "tqdm",
 ]
-# Compatibility extra: Sequince now installs MiniPCN unconditionally.
-minipcn = []
+minipcn = [
+    "sequince[minipcn]>=0.1.0",
+]
 emcee = [
     "emcee",
 ]
