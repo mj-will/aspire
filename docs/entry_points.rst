@@ -28,6 +28,34 @@ You can then select your custom flow by setting
 
 Provide ``sample_and_log_prob`` for direct flow sampling and ``state_dict`` /
 ``load_state_dict`` for persistence. Subclassing the Sequince Density base class
-also records constructor arguments for Aspire's flow loader. Plugins written
-against the removed Aspire ``Flow`` base class need to adopt these interfaces;
-the entry-point group name itself is unchanged.
+also records constructor arguments for Aspire's flow loader. The entry-point
+group name itself is unchanged.
+
+Existing external flow instances
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Wrap an old-style Aspire flow before passing it to Aspire::
+
+    from aspire import Aspire, LegacyFlowAdapter
+
+    flow = LegacyFlowAdapter(my_existing_flow)
+    analysis = Aspire(..., flow=flow)
+
+The adapter bridges methods without ``context`` or ``rng`` arguments and
+retains the ``FlowHistory`` returned by legacy training. Density and transform
+methods must already include their data transforms and Jacobians. Supplied
+instances with legacy signatures are also adapted automatically, with a
+deprecation warning encouraging explicit wrapping. This applies to sampler
+``proposal`` arguments too.
+
+Methods without an RNG argument retain their own RNG behavior; supplying a
+Sequince RNG does not make those methods reproducible. Flow preconditioning
+requires the legacy flow to implement the complete ``forward`` and ``inverse``
+maps.
+
+Persistence uses the legacy ``state_dict`` / ``load_state_dict`` pair or its
+HDF5 ``save`` / ``load`` methods. Constructor arguments are inferred from
+``_init_args`` or ``config_dict()``. If neither is available, supply them as
+``LegacyFlowAdapter(my_existing_flow, flow_kwargs={...})``. The adapter supports
+existing instances; it does not restore removed ``aspire.flows`` imports or
+make old checkpoint files compatible.

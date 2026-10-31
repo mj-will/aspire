@@ -12,12 +12,16 @@ from typing import Any, Callable
 import h5py
 from array_api_compat import array_namespace
 from sequince.checkpoint import SMCCheckpoint
-from sequince.flows import flow_state_dict, load_flow_state_dict
+from sequince.flows import (
+    NormalizingFlow,
+    flow_state_dict,
+    load_flow_state_dict,
+)
 from sequince.transforms import (
     FlowTransform,
 )
-from sequince_density.flows.base import Flow
 
+from .compat import LegacyFlow, _adapt_flow
 from .history import FlowHistory, History
 from .samplers.base import Sampler, load_checkpoint
 from .samples import Samples
@@ -65,7 +69,7 @@ class Aspire:
     xp : Callable | None
         The array backend to use. If None, the default backend will be
         used.
-    flow : Flow | None
+    flow : NormalizingFlow | LegacyFlow | None
         The flow object, if it already exists.
         If None, a new flow will be created.
     flow_backend : str
@@ -93,7 +97,7 @@ class Aspire:
         bounded_transform: str = "logit",
         device: str | None = None,
         xp: Callable | None = None,
-        flow: Flow | None = None,
+        flow: NormalizingFlow | LegacyFlow | None = None,
         flow_backend: str = "zuko",
         flow_matching: bool = False,
         eps: float = 1e-6,
@@ -117,7 +121,7 @@ class Aspire:
         self.xp = xp
         self.dtype = dtype
 
-        self._flow = flow
+        self._flow = _adapt_flow(flow) if flow is not None else None
         self._sampler = None
 
     @property
@@ -126,9 +130,9 @@ class Aspire:
         return self._flow
 
     @flow.setter
-    def flow(self, flow: Flow):
+    def flow(self, flow: NormalizingFlow | LegacyFlow):
         """Set the normalizing flow object."""
-        self._flow = flow
+        self._flow = _adapt_flow(flow)
 
     @property
     def sampler(self) -> Sampler | None:

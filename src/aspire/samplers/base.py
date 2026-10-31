@@ -24,6 +24,7 @@ from sequince.transforms import IdentityTransform
 from sequince.typing import Array
 from sequince.utils.random import RNGLike
 
+from ..compat import LegacyFlow, _adapt_flow
 from ..samples import BaseSamples, Samples
 from ..utils import determine_backend_name
 
@@ -51,8 +52,8 @@ logger = logging.getLogger(__name__)
 class _ValidatedFlowProposal(FlowProposal):
     """Check Aspire's event shape before Sequince builds target caches."""
 
-    def __init__(self, flow: NormalizingFlow, dims: int) -> None:
-        super().__init__(flow)
+    def __init__(self, flow: NormalizingFlow | LegacyFlow, dims: int) -> None:
+        super().__init__(_adapt_flow(flow))
         self._dims = dims
 
     def _validate(self, particles: Array) -> None:
@@ -193,7 +194,7 @@ class Sampler:
     @overload
     def __init__(
         self,
-        proposal: NormalizingFlow | FlowProposal,
+        proposal: NormalizingFlow | LegacyFlow | FlowProposal,
         log_likelihood: Callable[[BaseSamples], Array],
         log_prior: Callable[[BaseSamples], Array],
         dims: int,
@@ -207,7 +208,7 @@ class Sampler:
     def __init__(
         self,
         *,
-        prior_flow: NormalizingFlow | FlowProposal,
+        prior_flow: NormalizingFlow | LegacyFlow | FlowProposal,
         log_likelihood: Callable[[BaseSamples], Array],
         log_prior: Callable[[BaseSamples], Array],
         dims: int,
@@ -219,7 +220,7 @@ class Sampler:
 
     def __init__(
         self,
-        proposal: NormalizingFlow | FlowProposal | None = None,
+        proposal: NormalizingFlow | LegacyFlow | FlowProposal | None = None,
         log_likelihood: Callable[[BaseSamples], Array] | None = None,
         log_prior: Callable[[BaseSamples], Array] | None = None,
         dims: int | None = None,
@@ -228,7 +229,7 @@ class Sampler:
         parameters: list[str] | None = None,
         preconditioning_transform: ParticleTransform | None = None,
         *,
-        prior_flow: NormalizingFlow | FlowProposal | None = None,
+        prior_flow: NormalizingFlow | LegacyFlow | FlowProposal | None = None,
     ) -> None:
         if prior_flow is not None:
             if proposal is not None:
@@ -271,7 +272,7 @@ class Sampler:
         )
 
     @property
-    def prior_flow(self) -> NormalizingFlow | FlowProposal:
+    def prior_flow(self) -> NormalizingFlow | LegacyFlow | FlowProposal:
         """Deprecated alias for the supplied proposal."""
         warnings.warn(
             "prior_flow is deprecated; use proposal instead.",
@@ -281,7 +282,9 @@ class Sampler:
         return self.proposal
 
     @prior_flow.setter
-    def prior_flow(self, value: NormalizingFlow | FlowProposal) -> None:
+    def prior_flow(
+        self, value: NormalizingFlow | LegacyFlow | FlowProposal
+    ) -> None:
         warnings.warn(
             "prior_flow is deprecated; use proposal instead.",
             DeprecationWarning,

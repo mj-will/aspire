@@ -9,6 +9,8 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ### Added
 
+- Adapt externally supplied old-style flows with `LegacyFlowAdapter`, including
+  legacy method signatures, training histories, and save/load persistence.
 - Add `from_state` sample constructors for cached Sequince particle-state
   conversion, including beta and evidence for `SMCSamples`.
 

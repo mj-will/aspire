@@ -6,6 +6,7 @@ import logging
 from importlib.metadata import PackageNotFoundError, version
 
 from .aspire import Aspire
+from .compat import LegacyFlowAdapter
 from .samples import Samples
 from .utils import enable_scipy_array_api
 
@@ -20,5 +21,6 @@ enable_scipy_array_api()
 
 __all__ = [
     "Aspire",
+    "LegacyFlowAdapter",
     "Samples",
 ]
