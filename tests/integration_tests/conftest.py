@@ -149,7 +149,7 @@ def sampler_config(request):
         )
     elif request.param in ["smc", "minipcn_smc"]:
         return SamplerConfig(
-            sampler="minipcn_smc",
+            sampler=request.param,
             sampler_kwargs={
                 "adaptive": True,
                 "sampler_kwargs": {

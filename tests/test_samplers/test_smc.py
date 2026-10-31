@@ -10,7 +10,7 @@ from sequince.posterior import (
 
 from aspire.aspire import Aspire
 from aspire.history import SMCHistory
-from aspire.samplers.smc import BlackJAXSMC, SMCSampler
+from aspire.samplers.smc import BlackJAXSMC, MiniPCNSMC, SMCSampler
 from aspire.samples import SMCSamples
 
 
@@ -226,7 +226,7 @@ def test_minipcn_smc_converts_torch_flow_samples_to_numpy_backend():
     def numpy_log_likelihood(samples):
         return -0.5 * xp.sum((samples.x - 1.0) ** 2, axis=-1)
 
-    sampler = SMCSampler(
+    sampler = MiniPCNSMC(
         log_likelihood=numpy_log_likelihood,
         log_prior=numpy_log_prior,
         dims=2,
@@ -373,3 +373,39 @@ def test_blackjax_smc_runs():
     assert samples.x.shape == (12, 2)
     assert samples.beta == 1.0
     assert len(sampler.history.mcmc_acceptance) == 1
+
+
+@pytest.mark.parametrize("mutation", ["differential-evolution", "none"])
+def test_smc_mutation_override_applies_to_final_samples(
+    sampler_kwargs, monkeypatch, mutation: str
+) -> None:
+    import aspire.samplers.smc as module
+
+    standard_builder = module.make_standard_bayesian_smc
+    additional_samples = module.draw_additional_samples
+    selected = []
+
+    def build(*args, **kwargs):
+        selected.append(kwargs["mutation"])
+        return standard_builder(*args, **kwargs)
+
+    def draw(**kwargs):
+        selected.append(kwargs["mutation"])
+        return additional_samples(**kwargs)
+
+    monkeypatch.setattr(module, "make_standard_bayesian_smc", build)
+    monkeypatch.setattr(module, "draw_additional_samples", draw)
+    sampler = SMCSampler(**sampler_kwargs)
+    samples = sampler.sample(
+        16,
+        adaptive=False,
+        n_steps=2,
+        n_final_samples=24,
+        mutation=mutation,
+        sampler_kwargs={"n_steps": 1},
+        rng=13,
+    )
+    assert selected == [mutation, mutation]
+    assert samples.x.shape == (24, 2)
+    assert samples.beta == 1.0
+    assert sampler.mutation == "differential-evolution"

@@ -65,7 +65,11 @@ class SMCSampler(Sampler):
     -----
     ``result`` retains the native Sequince result. ``history`` exposes
     Aspire's SMC diagnostics and, when requested, particle populations.
+    The default mutation is differential evolution; backend-specific
+    subclasses retain their named mutation defaults.
     """
+
+    mutation = "differential-evolution"
 
     result: SMCResult
 
@@ -126,6 +130,7 @@ class SMCSampler(Sampler):
         rng: RNGLike,
         *,
         posterior: TemperedPosterior,
+        mutation: str,
         mutation_n_steps: int,
         mutation_kwargs: dict[str, Any],
     ) -> SMCSamples:
@@ -137,7 +142,7 @@ class SMCSampler(Sampler):
                 result=result,
                 rng=rng_obj,
                 n_particles=n_samples,
-                mutation=self.mutation,
+                mutation=mutation,
                 mutation_n_steps=mutation_n_steps,
                 mutation_kwargs=mutation_kwargs,
                 particle_transform=self._particle_transform(),
@@ -180,6 +185,7 @@ class SMCSampler(Sampler):
         resume_from: CheckpointInput | None = None,
         store_sample_history: bool = True,
         beta_tolerance: float | None = None,
+        mutation: str | None = None,
     ) -> SMCSamples:
         """Draw samples using adaptive or fixed-schedule SMC.
 
@@ -248,6 +254,12 @@ class SMCSampler(Sampler):
             ``DeprecationWarning``; it currently has no effect with this
             adapter. Default is None.
 
+        mutation : str or None, optional
+            Sequince mutation strategy. None uses the class default:
+            ``"differential-evolution"`` for ``SMCSampler``, or the named
+            backend for ``MiniPCNSMC``, ``EmceeSMC`` and ``BlackJAXSMC``.
+            Backend options are supplied through ``sampler_kwargs``.
+
         Returns
         -------
         SMCSamples
@@ -271,6 +283,7 @@ class SMCSampler(Sampler):
                 DeprecationWarning,
                 stacklevel=3,
             )
+        mutation = self.mutation if mutation is None else mutation
         rng = resolve_rng(rng, xp=self.xp)
         mutation_kwargs = dict(sampler_kwargs or {})
         configured_final_steps = mutation_kwargs.pop("n_final_steps", None)
@@ -285,9 +298,9 @@ class SMCSampler(Sampler):
             else int(configured_final_steps)
         )
         progress = mutation_kwargs.pop("progress", None)
-        if progress is not None and self.mutation == "emcee":
+        if progress is not None and mutation == "emcee":
             mutation_kwargs.setdefault("run_kwargs", {})["progress"] = progress
-        mutation_kwargs = self._mutation_kwargs(self.mutation, mutation_kwargs)
+        mutation_kwargs = self._mutation_kwargs(mutation, mutation_kwargs)
 
         target_ess_ratio: TargetESSRatio
         if isinstance(target_efficiency, tuple):
@@ -318,7 +331,7 @@ class SMCSampler(Sampler):
             max_delta=max_beta_step,
             adaptive=adaptive,
             num_steps=n_steps,
-            mutation=self.mutation,
+            mutation=mutation,
             mutation_n_steps=mutation_n_steps,
             mutation_kwargs=mutation_kwargs,
             particle_transform=self._particle_transform(),
@@ -360,6 +373,7 @@ class SMCSampler(Sampler):
             n_final_samples or n_samples,
             rng,
             posterior=posterior,
+            mutation=mutation,
             mutation_n_steps=final_mutation_n_steps,
             mutation_kwargs=mutation_kwargs,
         )
@@ -380,6 +394,8 @@ class SMCSampler(Sampler):
 
 class MiniPCNSMC(SMCSampler):
     """Sequince SMC with MiniPCN mutation."""
+
+    mutation = "minipcn"
 
 
 class EmceeSMC(SMCSampler):

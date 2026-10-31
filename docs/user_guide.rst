@@ -137,7 +137,12 @@ Markov chain Monte Carlo
 Sequential Monte Carlo
 ~~~~~~~~~~~~~~~~~~~~~~
 
-``smc`` / ``minipcn_smc``
+``smc``
+    Runs the base SMC sampler with Sequince's differential-evolution mutation
+    by default. Select another strategy with ``mutation="emcee"``, for example,
+    and pass backend options in ``sampler_kwargs``. No optional mutation
+    backend is required for the default.
+``minipcn_smc``
     Runs adaptive SMC with the MiniPCN MCMC kernel. Configure the number of
     particles via ``n_samples`` and pass kernel settings in ``sampler_kwargs``
     (for example ``n_steps``, ``target_acceptance_rate`` or ``step_fn``).

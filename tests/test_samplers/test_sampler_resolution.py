@@ -4,7 +4,7 @@ import pytest
 from aspire.aspire import Aspire
 from aspire.samplers.importance import ImportanceSampler
 from aspire.samplers.mcmc import Emcee, MiniPCN
-from aspire.samplers.smc import BlackJAXSMC, EmceeSMC, MiniPCNSMC
+from aspire.samplers.smc import BlackJAXSMC, EmceeSMC, MiniPCNSMC, SMCSampler
 
 
 @pytest.mark.parametrize(
@@ -64,8 +64,10 @@ def test_sampler_names_resolve_to_expected_classes(sampler_kwargs):
         xp=sampler_kwargs["xp"],
     )
 
-    assert aspire.get_sampler_class("smc") is MiniPCNSMC
+    assert aspire.get_sampler_class("smc") is SMCSampler
+    assert SMCSampler.mutation == "differential-evolution"
     assert aspire.get_sampler_class("minipcn_smc") is MiniPCNSMC
+    assert MiniPCNSMC.mutation == "minipcn"
     assert aspire.get_sampler_class("emcee_smc") is EmceeSMC
     assert aspire.get_sampler_class("blackjax_smc") is BlackJAXSMC
     assert aspire.get_sampler_class("minipcn") is MiniPCN

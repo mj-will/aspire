@@ -306,7 +306,9 @@ class Aspire:
             from .samplers.smc import BlackJAXSMC as SamplerClass
         elif sampler_type == "minipcn":
             from .samplers.mcmc import MiniPCN as SamplerClass
-        elif sampler_type in ["smc", "minipcn_smc"]:
+        elif sampler_type == "smc":
+            from .samplers.smc import SMCSampler as SamplerClass
+        elif sampler_type == "minipcn_smc":
             from .samplers.smc import MiniPCNSMC as SamplerClass
         else:
             from importlib.metadata import entry_points

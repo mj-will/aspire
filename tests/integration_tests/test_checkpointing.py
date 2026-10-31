@@ -32,7 +32,7 @@ def test_resume_from_file_smc(
             n_samples=20,
             sampler="smc",
             n_final_samples=25,
-            sampler_kwargs={"n_steps": 10, "step_fn": "pcn"},
+            sampler_kwargs={"n_steps": 10},
         )
 
     resumed = Aspire.resume_from_file(
@@ -78,7 +78,7 @@ def test_resume_from_file_manual_call(
             n_samples=20,
             sampler="smc",
             n_final_samples=25,
-            sampler_kwargs={"n_steps": 10, "step_fn": "pcn"},
+            sampler_kwargs={"n_steps": 10},
         )
 
     resumed = Aspire.resume_from_file(
@@ -119,7 +119,7 @@ def test_auto_checkpoint_resume_same_instance(
             n_samples=20,
             sampler="smc",
             n_final_samples=25,
-            sampler_kwargs={"n_steps": 10, "step_fn": "pcn"},
+            sampler_kwargs={"n_steps": 10},
         )
 
     assert not hasattr(aspire, "_resume_from_default")
@@ -158,7 +158,7 @@ def test_auto_checkpoint_resume_loads_flow_for_new_instance(
             n_samples=20,
             sampler="smc",
             n_final_samples=25,
-            sampler_kwargs={"n_steps": 10, "step_fn": "pcn"},
+            sampler_kwargs={"n_steps": 10},
         )
 
     resumed = Aspire(

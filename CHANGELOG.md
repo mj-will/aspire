@@ -16,6 +16,9 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ### Changed
 
+- Route `smc` to the base SMC sampler with differential-evolution mutation
+  by default, configurable through `mutation`. Use `minipcn_smc` to retain
+  MiniPCN mutation.
 - Delegate SMC and MCMC execution to Sequince and flow implementations to
   Sequince Density. Sampling trajectories and RNG behavior differ from previous
   Aspire releases.
