@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from typing import Any
 
 from array_api_compat import array_namespace, device
@@ -137,7 +138,17 @@ class SMCSampler(Sampler):
         checkpoint_file_path: str | None = None,
         resume_from=None,
         store_sample_history: bool = True,
+        beta_tolerance: float | None = None,
     ) -> SMCSamples:
+        """Sample with SMC; ``beta_tolerance`` is deprecated and ignored."""
+        if beta_tolerance is not None:
+            warnings.warn(
+                "beta_tolerance is deprecated and has no effect with the "
+                "Sequince backend. Remove this argument; min_beta_step and "
+                "max_beta_step control beta increments, not search tolerance.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
         rng = resolve_rng(rng, xp=self.xp)
         mutation_kwargs = dict(sampler_kwargs or {})
         configured_final_steps = mutation_kwargs.pop("n_final_steps", None)

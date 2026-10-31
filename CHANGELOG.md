@@ -30,6 +30,11 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 - Stop accepting pre-migration sampler checkpoints and saved-flow groups. Refit
   proposals and start new checkpoint files when migrating.
 
+### Deprecated
+
+- Accept the legacy `beta_tolerance` SMC argument with a `DeprecationWarning`.
+  It has no effect with the Sequince backend.
+
 ### Fixed
 
 - Support native Sequince pickle checkpoint files for SMC/MCMC saving and

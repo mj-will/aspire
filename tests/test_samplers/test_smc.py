@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 from array_api_compat import numpy as xp
@@ -10,6 +12,45 @@ from aspire.aspire import Aspire
 from aspire.history import SMCHistory
 from aspire.samplers.smc import BlackJAXSMC, SMCSampler
 from aspire.samples import SMCSamples
+
+
+@pytest.mark.parametrize("via_aspire", [False, True])
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_beta_tolerance_is_accepted_with_deprecation_warning(
+    sampler_kwargs, via_aspire: bool, adaptive: bool
+) -> None:
+    def sample(**extra_kwargs) -> SMCSamples:
+        options = dict(
+            adaptive=adaptive,
+            n_steps=None if adaptive else 2,
+            min_beta_step=0.05,
+            max_beta_step=0.3,
+            sampler_kwargs={"n_steps": 1},
+            rng=19,
+            **extra_kwargs,
+        )
+        if via_aspire:
+            aspire = Aspire(
+                log_prior=sampler_kwargs["log_prior"],
+                log_likelihood=sampler_kwargs["log_likelihood"],
+                dims=2,
+                parameters=sampler_kwargs["parameters"],
+                flow=type(sampler_kwargs["prior_flow"])(),
+                xp=sampler_kwargs["xp"],
+            )
+            return aspire.sample_posterior(16, sampler="smc", **options)
+        return SMCSampler(**sampler_kwargs).sample(16, **options)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", DeprecationWarning)
+        expected = sample()
+    assert not any("beta_tolerance" in str(item.message) for item in caught)
+
+    with pytest.warns(DeprecationWarning, match="beta_tolerance.*no effect"):
+        actual = sample(beta_tolerance=1e-3)
+    np.testing.assert_array_equal(actual.x, expected.x)
+    assert actual.log_evidence == expected.log_evidence
+    assert actual.beta == expected.beta == 1.0
 
 
 def test_smc_returns_aspire_samples_and_history(sampler_kwargs):

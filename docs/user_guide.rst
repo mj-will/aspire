@@ -166,9 +166,10 @@ only resamples; increasing it resamples and mutates through Sequince's
 that additional mutation and has no effect when reducing the count. These
 choices change RNG consumption and can introduce duplicate output particles.
 
-The previous ``beta_tolerance`` option is not accepted; use ``min_beta_step``
-and ``max_beta_step`` to constrain increments. These bound the schedule and do
-not provide a separate root-search tolerance.
+The previous ``beta_tolerance`` option is accepted for compatibility but emits
+a ``DeprecationWarning`` and has no effect with the Sequince backend. Remove it
+from existing calls. ``min_beta_step`` and ``max_beta_step`` constrain increments;
+they bound the schedule and do not provide a separate root-search tolerance.
 
 History, diagnostics, and persistence
 -------------------------------------
