@@ -6,7 +6,7 @@ import logging
 import pickle
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypeAlias, overload
 
 import h5py
 from array_api_compat import array_namespace
@@ -23,8 +23,26 @@ from sequince.transforms import IdentityTransform
 from sequince.typing import Array
 from sequince.utils.random import RNGLike
 
-from ..samples import Samples
+from ..samples import BaseSamples, Samples
 from ..utils import determine_backend_name
+
+if TYPE_CHECKING:
+    from sequince.flows import NormalizingFlow
+    from sequince.mcmc import MCMCResult
+    from sequince.posterior import TemperedPosterior
+    from sequince.result import SMCResult
+    from sequince.state import ParticleState
+    from sequince.transforms import ParticleTransform
+
+    from ..history import SMCHistory
+
+CheckpointInput: TypeAlias = (
+    SMCCheckpoint | Mapping[str, Any] | str | Path | bytes | bytearray
+)
+CheckpointCallback: TypeAlias = Callable[[SMCCheckpoint], None]
+SamplerCallback: TypeAlias = Callable[
+    ["ParticleState", StepContext, "SMCResult"], StepContext | None
+]
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +50,7 @@ logger = logging.getLogger(__name__)
 class _ValidatedFlowProposal(FlowProposal):
     """Check Aspire's event shape before Sequince builds target caches."""
 
-    def __init__(self, flow: Any, dims: int) -> None:
+    def __init__(self, flow: NormalizingFlow, dims: int) -> None:
         super().__init__(flow)
         self._dims = dims
 
@@ -75,7 +93,7 @@ class CallbackCheckpointWriter(CheckpointWriter):
 
     def __init__(
         self,
-        callback: Callable[[SMCCheckpoint], Any],
+        callback: CheckpointCallback,
         *,
         every: int = 1,
     ) -> None:
@@ -86,7 +104,17 @@ class CallbackCheckpointWriter(CheckpointWriter):
         self._callback(checkpoint)
 
 
-def load_checkpoint(checkpoint):
+@overload
+def load_checkpoint(checkpoint: None) -> None: ...
+
+
+@overload
+def load_checkpoint(checkpoint: CheckpointInput) -> SMCCheckpoint: ...
+
+
+def load_checkpoint(
+    checkpoint: CheckpointInput | None,
+) -> SMCCheckpoint | None:
     """Load a Sequince checkpoint from an object, mapping, or checkpoint file."""
     if checkpoint is None or isinstance(checkpoint, SMCCheckpoint):
         return checkpoint
@@ -131,18 +159,19 @@ class Sampler:
     """Common Aspire sampler state and Sequince integration."""
 
     mutation = "minipcn"
+    sample: Callable[..., BaseSamples]
 
     def __init__(
         self,
-        prior_flow,
-        log_likelihood: Callable,
-        log_prior: Callable,
+        prior_flow: NormalizingFlow | FlowProposal,
+        log_likelihood: Callable[[BaseSamples], Array],
+        log_prior: Callable[[BaseSamples], Array],
         dims: int,
-        xp: Callable,
+        xp: Any,
         dtype: Any | str | None = None,
         parameters: list[str] | None = None,
-        preconditioning_transform=None,
-    ):
+        preconditioning_transform: ParticleTransform | None = None,
+    ) -> None:
         self.prior_flow = prior_flow
         self.prior_proposal = _ValidatedFlowProposal(
             prior_flow.flow
@@ -157,7 +186,7 @@ class Sampler:
         self.backend_str = determine_backend_name(xp=self.xp)
         self.dtype = dtype
         self.parameters = parameters
-        self.history = None
+        self.history: SMCHistory | MCMCResult | None = None
         self.n_likelihood_evaluations = 0
         self.preconditioning_transform = (
             IdentityTransform()
@@ -165,21 +194,21 @@ class Sampler:
             else preconditioning_transform
         )
 
-    def log_likelihood(self, samples: Samples):
+    def log_likelihood(self, samples: BaseSamples) -> Array:
         """Evaluate the log likelihood and update the evaluation counter."""
         self.n_likelihood_evaluations += len(samples)
         return self._log_likelihood(samples)
 
-    def log_prior(self, samples: Samples):
+    def log_prior(self, samples: BaseSamples) -> Array:
         """Evaluate the log prior."""
         return self._log_prior(samples)
 
     def config_dict(
         self,
         include_sample_calls: str | bool = "last",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Return sampler identification and optionally tracked sample calls."""
-        config = {"sampler_class": self.__class__.__name__}
+        config: dict[str, Any] = {"sampler_class": self.__class__.__name__}
         if include_sample_calls is False:
             return config
         if include_sample_calls is True:
@@ -225,33 +254,38 @@ class Sampler:
             )
         return config
 
-    def _array_samples(self, particles) -> Samples:
+    def _array_samples(self, particles: Array) -> Samples:
         return Samples(
             particles,
             parameters=self.parameters,
             xp=array_namespace(particles),
         )
 
-    def _log_prior_array(self, particles):
+    def _log_prior_array(self, particles: Array) -> Array:
         return self.log_prior(self._array_samples(particles))
 
-    def _log_likelihood_array(self, particles):
+    def _log_likelihood_array(self, particles: Array) -> Array:
         return self.log_likelihood(self._array_samples(particles))
 
-    def _log_posterior_array(self, particles):
+    def _log_posterior_array(self, particles: Array) -> Array:
         return self._log_prior_array(particles) + self._log_likelihood_array(
             particles
         )
 
-    def _proposal(self):
+    def _proposal(self) -> FlowProposal:
         return self.prior_proposal
 
-    def _particle_transform(self):
+    def _particle_transform(self) -> ParticleTransform:
         return self.preconditioning_transform
 
-    def _checkpoint_writers(self, file_path, every, callback=None):
+    def _checkpoint_writers(
+        self,
+        file_path: str | Path | None,
+        every: int | None,
+        callback: CheckpointCallback | None = None,
+    ) -> list[CheckpointWriter]:
         every = every or 1
-        writers = []
+        writers: list[CheckpointWriter] = []
         if file_path is not None:
             writer_class = (
                 PickleCheckpointWriter
@@ -263,7 +297,13 @@ class Sampler:
             writers.append(CallbackCheckpointWriter(callback, every=every))
         return writers
 
-    def _initial_state(self, n_particles, posterior=None, *, rng=None):
+    def _initial_state(
+        self,
+        n_particles: int,
+        posterior: TemperedPosterior | None = None,
+        *,
+        rng: RNGLike = None,
+    ) -> ParticleState:
         state = draw_initial_state(
             self._proposal(),
             n_particles,
@@ -273,11 +313,13 @@ class Sampler:
         )
         return self._validate_initial_state(state)
 
-    def _validate_initial_state(self, state):
+    def _validate_initial_state(self, state: ParticleState) -> ParticleState:
         self.prior_proposal._validate(state.particles)
         return state
 
-    def _mcmc_initial_state(self, n_particles, *, rng=None):
+    def _mcmc_initial_state(
+        self, n_particles: int, *, rng: RNGLike = None
+    ) -> ParticleState:
         state = draw_mcmc_initial_state(
             self._proposal(),
             n_particles,

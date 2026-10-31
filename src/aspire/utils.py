@@ -7,6 +7,7 @@ import logging
 import math
 import pickle
 import warnings
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
@@ -44,6 +45,8 @@ if TYPE_CHECKING:
     from multiprocessing import Pool
 
     from array_api_compat.common._typing import Array
+    from sequince.flows import NormalizingFlow
+    from sequince.transforms import ParticleTransform
 
     from .aspire import Aspire
     from .samples import BaseSamples
@@ -62,7 +65,9 @@ IS_NAMESPACE_FUNCTIONS = {
 }
 
 
-def get_flow_class(backend: str = "zuko", flow_matching: bool = False) -> type:
+def get_flow_class(
+    backend: str = "zuko", flow_matching: bool = False
+) -> type[NormalizingFlow]:
     """Resolve a density flow implementation by backend name."""
     from importlib.metadata import entry_points
 
@@ -97,7 +102,12 @@ def get_flow_class(backend: str = "zuko", flow_matching: bool = False) -> type:
     return FlowClass
 
 
-def _indexed_bounds(parameters, prior_bounds, *, exclude=()):
+def _indexed_bounds(
+    parameters: Sequence[str] | None,
+    prior_bounds: Mapping[str, tuple[float, float]] | None,
+    *,
+    exclude: Collection[str] | None = (),
+) -> dict[int, tuple[float, ...]]:
     if not parameters or not prior_bounds:
         return {}
     excluded = set(exclude or ())
@@ -112,16 +122,16 @@ def _indexed_bounds(parameters, prior_bounds, *, exclude=()):
 
 def build_particle_transform(
     *,
-    parameters,
-    prior_bounds,
-    periodic_parameters=None,
-    bounded_to_unbounded=True,
-    bounded_transform="logit",
-    affine_transform=True,
-    eps=1e-6,
-):
+    parameters: Sequence[str] | None,
+    prior_bounds: Mapping[str, tuple[float, float]] | None,
+    periodic_parameters: Sequence[str] | None = None,
+    bounded_to_unbounded: bool = True,
+    bounded_transform: str = "logit",
+    affine_transform: bool = True,
+    eps: float = 1e-6,
+) -> ParticleTransform:
     """Build a Sequince transform from Aspire's parameter configuration."""
-    transforms = []
+    transforms: list[ParticleTransform] = []
     periodic_parameters = periodic_parameters or []
 
     periodic_bounds = _indexed_bounds(

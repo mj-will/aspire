@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import math
 import warnings
-from typing import Any
+from collections.abc import Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from array_api_compat import array_namespace, device
 from sequince import make_standard_bayesian_smc
@@ -13,7 +15,21 @@ from sequince.utils.random import resolve_rng
 from ..history import SMCHistory
 from ..samples import SMCSamples
 from ..utils import asarray, track_calls
-from .base import Sampler, load_checkpoint
+from .base import (
+    CheckpointCallback,
+    CheckpointInput,
+    Sampler,
+    SamplerCallback,
+    load_checkpoint,
+)
+
+if TYPE_CHECKING:
+    from sequince.posterior import TemperedPosterior
+    from sequince.result import SMCResult
+    from sequince.state import ParticleState
+    from sequince.steps.context import StepContext
+    from sequince.steps.weighting import TargetESSRatio
+    from sequince.utils.random import RNGLike
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +37,9 @@ logger = logging.getLogger(__name__)
 class SMCSampler(Sampler):
     """Bayesian SMC whose execution and checkpointing are owned by Sequince."""
 
-    def _state_to_samples(self, state) -> SMCSamples:
+    result: SMCResult
+
+    def _state_to_samples(self, state: ParticleState) -> SMCSamples:
         beta = float(state.metadata.get("beta", 0.0))
         particles = state.particles
         samples = SMCSamples(
@@ -50,7 +68,7 @@ class SMCSampler(Sampler):
         )
         return samples
 
-    def _sample_history(self, result) -> list[SMCSamples]:
+    def _sample_history(self, result: SMCResult) -> list[SMCSamples]:
         states = [
             state
             for state in (result.initial_state, *result.states)
@@ -59,7 +77,9 @@ class SMCSampler(Sampler):
         return [self._state_to_samples(state).to_numpy() for state in states]
 
     @staticmethod
-    def _mutation_kwargs(mutation, kwargs):
+    def _mutation_kwargs(
+        mutation: str, kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
         """Normalize legacy Aspire mutation options for Sequince."""
         normalized = dict(kwargs)
         if mutation != "blackjax":
@@ -80,14 +100,14 @@ class SMCSampler(Sampler):
 
     def _posterior_samples(
         self,
-        result,
-        n_samples,
-        rng,
+        result: SMCResult,
+        n_samples: int,
+        rng: RNGLike,
         *,
-        posterior,
-        mutation_n_steps,
-        mutation_kwargs,
-    ):
+        posterior: TemperedPosterior,
+        mutation_n_steps: int,
+        mutation_kwargs: dict[str, Any],
+    ) -> SMCSamples:
         """Draw final samples while retaining cached target values."""
         state = result.final_state
         rng_obj = resolve_rng(rng, xp=self.xp)
@@ -131,12 +151,12 @@ class SMCSampler(Sampler):
         target_efficiency_rate: float = 1.0,
         n_final_samples: int | None = None,
         sampler_kwargs: dict[str, Any] | None = None,
-        rng=None,
-        callbacks=None,
-        checkpoint_callback=None,
+        rng: RNGLike = None,
+        callbacks: Sequence[SamplerCallback] | None = None,
+        checkpoint_callback: CheckpointCallback | None = None,
         checkpoint_every: int | None = None,
-        checkpoint_file_path: str | None = None,
-        resume_from=None,
+        checkpoint_file_path: str | Path | None = None,
+        resume_from: CheckpointInput | None = None,
         store_sample_history: bool = True,
         beta_tolerance: float | None = None,
     ) -> SMCSamples:
@@ -167,18 +187,22 @@ class SMCSampler(Sampler):
             mutation_kwargs.setdefault("run_kwargs", {})["progress"] = progress
         mutation_kwargs = self._mutation_kwargs(self.mutation, mutation_kwargs)
 
+        target_ess_ratio: TargetESSRatio
         if isinstance(target_efficiency, tuple):
             start, end = map(float, target_efficiency)
 
-            def target_ess_ratio(temperature, context=None):
+            def evolving_target_ess_ratio(
+                temperature: float, context: StepContext | None = None
+            ) -> float:
                 return start + (end - start) * (
                     temperature**target_efficiency_rate
                 )
 
+            target_ess_ratio = evolving_target_ess_ratio
         else:
             target_ess_ratio = float(target_efficiency)
 
-        def history_target_efficiency(temperature):
+        def history_target_efficiency(temperature: float) -> float:
             if callable(target_ess_ratio):
                 return target_ess_ratio(temperature)
             return target_ess_ratio

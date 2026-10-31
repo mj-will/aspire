@@ -1,16 +1,32 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
 from array_api_compat import array_namespace
 from sequince import make_mcmc
 from sequince.utils.random import resolve_rng
 
 from ..samples import MCMCSamples, Samples
 from ..utils import track_calls
-from .base import Sampler, load_checkpoint
+from .base import (
+    CheckpointCallback,
+    CheckpointInput,
+    Sampler,
+    SamplerCallback,
+    load_checkpoint,
+)
+
+if TYPE_CHECKING:
+    from sequince.mcmc import MCMCResult
+    from sequince.utils.random import RNGLike
 
 
 class MCMCSampler(Sampler):
     """Standalone MCMC whose execution and checkpointing are owned by Sequince."""
+
+    result: MCMCResult
 
     @track_calls
     def sample(
@@ -24,14 +40,14 @@ class MCMCSampler(Sampler):
         burnin: int = 0,
         discard: int | None = None,
         last_step_only: bool = False,
-        rng=None,
-        callbacks=None,
-        checkpoint_callback=None,
+        rng: RNGLike = None,
+        callbacks: Sequence[SamplerCallback] | None = None,
+        checkpoint_callback: CheckpointCallback | None = None,
         checkpoint_every: int | None = None,
-        checkpoint_file_path: str | None = None,
-        resume_from=None,
-        **mutation_kwargs,
-    ):
+        checkpoint_file_path: str | Path | None = None,
+        resume_from: CheckpointInput | None = None,
+        **mutation_kwargs: Any,
+    ) -> MCMCSamples | Samples:
         if nsteps is not None:
             n_steps = nsteps
         if discard is not None:
@@ -72,6 +88,7 @@ class MCMCSampler(Sampler):
         self.result = result
         self.history = result
         chain = result.samples(burn_in=burnin, thin=thin, flat=False)
+        samples: Samples | MCMCSamples
         if last_step_only:
             particles = chain[-1]
             samples = Samples(

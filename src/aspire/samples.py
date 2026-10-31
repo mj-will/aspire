@@ -5,7 +5,8 @@ import logging
 import math
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
-from typing import TYPE_CHECKING, Any, Callable, ClassVar
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import numpy as np
 from array_api_compat import (
@@ -56,7 +57,7 @@ class BaseSamples:
 
     If None, the default dtype for the array namespace will be used.
     """
-    xp: Callable | None = None
+    xp: ModuleType | None = None
     """
     The array namespace to use for the samples.
 
@@ -324,7 +325,7 @@ class BaseSamples:
     def __len__(self):
         return len(self.x)
 
-    def __getitem__(self, idx) -> BaseSamples:
+    def __getitem__(self, idx) -> Self:
         return self.__class__(
             x=self.x[idx],
             log_likelihood=self.log_likelihood[idx]

@@ -989,8 +989,8 @@ class Aspire:
         sampler_config_path: str = "sampler_config",
     ) -> tuple[
         SMCCheckpoint | None,
-        dict | None,
-        dict | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
         str | None,
         int | None,
         Any,
@@ -1091,12 +1091,12 @@ class Aspire:
         self,
         *,
         checkpoint: SMCCheckpoint | None,
-        checkpoint_state: dict | None,
-        sampler_config: dict | None,
+        checkpoint_state: dict[str, Any] | None,
+        sampler_config: dict[str, Any] | None,
         saved_sampler_type: str | None,
         n_samples: int | None,
         sampler: str | None = None,
-        resume_kwargs: dict | None = None,
+        resume_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Configure default resume state for future sample_posterior calls."""
         if checkpoint is None:
@@ -1193,7 +1193,14 @@ class Aspire:
         checkpoint_dset: str,
         flow_path: str,
         config_path: str,
-    ):
+    ) -> tuple[
+        "Aspire",
+        SMCCheckpoint | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+        str | None,
+        int | None,
+    ]:
         """Construct an Aspire instance, load flow, and gather checkpoint metadata from file."""
         if Path(file_path).suffix.lower() in (".pkl", ".pickle"):
             raise ValueError(

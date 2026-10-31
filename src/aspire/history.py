@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -11,6 +11,9 @@ from sequince.steps.mutation.metrics import MutationMetricsOutput
 
 from .samples import SMCSamples
 from .utils import load_from_h5_file, recursively_save_to_h5_file
+
+if TYPE_CHECKING:
+    from sequince.result import SMCResult
 
 
 @dataclass
@@ -86,7 +89,7 @@ class SMCHistory(History):
     @classmethod
     def from_sequince_result(
         cls,
-        result,
+        result: SMCResult,
         *,
         sample_history: Sequence[SMCSamples] = (),
         target_efficiency: Callable[[float], float] | None = None,
