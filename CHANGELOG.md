@@ -9,54 +9,40 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ### Added
 
-- Adapt externally supplied old-style flows with `LegacyFlowAdapter`, including
-  legacy method signatures, training histories, and save/load persistence.
+- Provide `aspire.compat.LegacyFlowAdapter` for externally supplied old-style
+  flows, including training histories and save/load persistence.
 - Add `from_state` sample constructors for cached Sequince particle-state
   conversion, including beta and evidence for `SMCSamples`.
 
 ### Changed
 
-- Rename the sampler constructor argument and stored input from `prior_flow`
-  to `proposal`, preparing the interface for proposal families beyond flows.
+- Delegate SMC and MCMC execution to Sequince and flow implementations to
+  Sequince Density. Sampling trajectories and RNG behavior differ from previous
+  Aspire releases.
 - Require Sequince 0.1.0 or later and keep MiniPCN optional through
   `aspire-inference[minipcn]`.
-- Delegate SMC and MCMC execution and runtime checkpoints to Sequince, and flow
-  implementations to Sequince Density. Sampling trajectories and checkpoint
-  formats differ from previous Aspire releases; legacy flow and sampler
-  extension interfaces require migration.
-- Adapt sampler histories to Sequince's beta, normalizing-constant, and
-  mutation-metric interfaces.
+- Rename the sampler constructor argument and stored input from `prior_flow`
+  to `proposal`, preparing the interface for proposal families beyond flows.
+- Use native Sequince runtime checkpoints, supporting HDF5 and pickle files
+  for saving and resuming SMC/MCMC runs.
 - Treat periodic parameters as ordinary coordinates in flow preconditioning,
   using the same bounded and affine transforms as other parameters.
-- Treat `max_n_steps` as an iteration limit and report intermediate beta when
-  it is reached. Final populations are resampled, with additional mutation only
-  when increasing the final sample count.
+- Resample final SMC populations, with additional mutation only when increasing
+  the final sample count.
 
 ### Removed
 
-- Remove the legacy flow/transform modules and sampler extension helpers. Custom
-  flow and sampler plugins must adopt Sequince's protocols.
+- Remove the legacy flow/transform modules and sampler extension helpers.
+  Custom plugins must adopt Sequince's protocols or wrap existing flow
+  instances with `LegacyFlowAdapter`.
 - Stop accepting pre-migration sampler checkpoints and saved-flow groups. Refit
   proposals and start new checkpoint files when migrating.
 
 ### Deprecated
 
-- Retain `prior_flow` as a deprecated sampler constructor keyword and attribute,
-  and `prior_proposal` as a deprecated alias for the cached proposal adapter.
+- Retain `prior_flow` as a deprecated sampler constructor keyword and attribute.
 - Accept the legacy `beta_tolerance` SMC argument with a `DeprecationWarning`.
   It has no effect with the Sequince backend.
-
-### Fixed
-
-- Preserve an unspecified beta as `None` when creating SMC samples from a state.
-- Support native Sequince pickle checkpoint files for SMC/MCMC saving and
-  resuming, including Aspire's manual resume and auto-checkpoint workflows.
-- Keep native checkpoint objects when restoring Aspire resume defaults.
-- Validate proposal event shapes before building target caches, including flat
-  proposal arrays.
-- Use the checkpoint's restored RNG stream for final posterior resampling.
-- Reject NaN and positive-infinite target evaluations while preserving negative
-  infinity as zero target density.
 
 ## [0.1.0] - 2026-08-03
 
