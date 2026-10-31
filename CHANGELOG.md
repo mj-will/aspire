@@ -32,6 +32,9 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ### Fixed
 
+- Support native Sequince pickle checkpoint files for SMC/MCMC saving and
+  resuming, including Aspire's manual resume and auto-checkpoint workflows.
+- Keep native checkpoint objects when restoring Aspire resume defaults.
 - Validate proposal event shapes before building target caches, including flat
   proposal arrays.
 - Use the checkpoint's restored RNG stream for final posterior resampling.

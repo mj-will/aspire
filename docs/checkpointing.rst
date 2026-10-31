@@ -12,20 +12,25 @@ Aspire provides a few simple patterns to resume long runs.
 Saving checkpoints while sampling
 ---------------------------------
 
-- Pass ``checkpoint_path`` (an HDF5 file) to :py:meth:`aspire.Aspire.sample_posterior`
+- Pass ``checkpoint_path`` to :py:meth:`aspire.Aspire.sample_posterior`
   to write checkpoints as the sampler runs. Use ``checkpoint_every`` to control
-  frequency and ``checkpoint_save_config/flow`` to control what metadata is saved.
+  frequency. Use ``.h5``/``.hdf5`` for HDF5 or ``.pkl``/``.pickle`` for a native
+  Sequince pickle checkpoint. ``checkpoint_save_config`` controls Aspire metadata
+  in HDF5 files; pickle files contain sampler state only.
 - For a convenience wrapper, wrap your sampling in
   ``with aspire.auto_checkpoint("run.h5", every=1): ...``. Inside the context,
   ``sample_posterior`` will default to checkpointing to that file, and the config/flow
-  will be updated as needed.
+  will be updated as needed. ``auto_checkpoint("run.pkl", every=1)`` also works,
+  using the existing Aspire configuration and fitted flow when resuming.
 
 What gets saved
 ^^^^^^^^^^^^^^^
 
-- Sequince stores its runtime checkpoint under ``/checkpoint/runtime`` in the
+- Both formats store Sequince's sampler state, iteration history, and RNG state.
+  Pickle files can also be loaded with ``SMCCheckpoint.load_pickle("run.pkl")``.
+- For HDF5, Sequince stores its runtime checkpoint under ``/checkpoint/runtime`` in the
   HDF5 file, with iteration history alongside it.
-- Aspire writes ``/aspire_config`` for Aspire-level configuration,
+- In HDF5 files, Aspire writes ``/aspire_config`` for Aspire-level configuration,
   ``/sampler_config`` for sampler metadata, and ``/flow`` for the saved flow.
   If these already exist, they are overwritten when saving.
 - For native Sequince checkpoints, sampler metadata may be read from either
@@ -36,7 +41,7 @@ Resuming from a file
 --------------------
 
 - Use :py:meth:`aspire.Aspire.resume_from_file` to rebuild an Aspire instance and flow
-  from a checkpoint file:
+  from an HDF5 checkpoint file containing Aspire metadata:
 
   .. code-block:: python
 
@@ -56,10 +61,10 @@ Resuming from a file
 Resuming with ``auto_checkpoint``
 ---------------------------------
 
-- If you use ``auto_checkpoint(..., resume=True)``, it will attempt to load the flow
-  and config from the checkpoint file when entering the context. If a checkpoint is
+- If you use ``auto_checkpoint(..., resume=True)`` with HDF5, it will attempt to load
+  the flow and saved sampler settings when entering the context. If a checkpoint is
   found, it will also load that and prime the instance to resume sampling. If no
-  checkpoint is found, it will simply load the flow and config (if present) and start
+  checkpoint is found, it will load the flow and sampler settings (if present) and start
   fresh sampling.
 
   .. code-block:: python
@@ -72,24 +77,35 @@ Resuming with ``auto_checkpoint``
           # If a checkpoint was found, sampling will resume from that; otherwise it will start from scratch
           samples = aspire.sample_posterior(...)
 
+- With a pickle checkpoint, configure the Aspire instance and provide its fitted
+  proposal flow first. Specify the sampler and its options when resuming; pickle
+  checkpoints do not store Aspire configuration or a separate proposal flow.
+
+  .. code-block:: python
+
+      with aspire.auto_checkpoint("run.pkl", every=1, resume=True):
+          samples = aspire.sample_posterior(n_samples=..., sampler="smc")
+
 
 
 Manual resume via ``sample_posterior`` args
 -------------------------------------------
 
-- If you have a checkpoint blob (bytes or dict) already, you can pass it directly:
+- Pass a checkpoint file path directly to ``resume_from`` on a configured Aspire
+  instance with its fitted proposal flow. Both HDF5 and pickle files are supported:
 
   .. code-block:: python
 
       samples = aspire.sample_posterior(
           n_samples=...,
           sampler="smc",
-          resume_from=checkpoint_bytes_or_dict,
-          checkpoint_path="run.h5",  # optional: keep writing checkpoints
+          resume_from="run.pkl",
+          checkpoint_path="run.pkl",  # optional: keep writing checkpoints
       )
 
-- To resume from a file without using ``resume_from_file``, load the checkpoint bytes
-  and flow yourself, then call ``sample_posterior``:
+- You can also pass a native ``SMCCheckpoint`` object or its ``to_dict()``
+  representation. For example, load the checkpoint and saved flow from HDF5,
+  then call ``sample_posterior``:
 
   .. code-block:: python
 
@@ -107,8 +123,10 @@ Manual resume via ``sample_posterior`` args
 Notes and tips
 --------------
 
-- Checkpoint files must be HDF5 (``.h5``/``.hdf5``).
-- If a checkpoint is missing in the file (e.g., sampling never wrote one), the flow
+- Checkpoint files may be HDF5 (``.h5``/``.hdf5``) or pickle (``.pkl``/``.pickle``).
+  ``resume_from_file`` requires HDF5 with Aspire configuration and flow; use
+  ``resume_from`` or ``auto_checkpoint`` on an existing instance for pickle files.
+- If a checkpoint is missing in an HDF5 file (e.g., sampling never wrote one), the flow
   and config are still loaded; you can simply start sampling again and checkpointing
   will continue to the same file.
 - For manual control, you can always call ``save_config`` / ``save_flow`` yourself

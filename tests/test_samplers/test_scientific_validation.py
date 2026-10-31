@@ -89,8 +89,11 @@ def test_mcmc_gaussian_moments() -> None:
     np.testing.assert_allclose(np.var(samples.x, axis=0), 0.5, atol=0.1)
 
 
-def test_mcmc_checkpoint_extends_the_chain(tmp_path: Path) -> None:
-    path = tmp_path / "mcmc.h5"
+@pytest.mark.parametrize("suffix", [".h5", ".pkl", ".pickle"])
+def test_mcmc_checkpoint_extends_the_chain(
+    tmp_path: Path, suffix: str
+) -> None:
+    path = tmp_path / f"mcmc{suffix}"
     first = MCMCSampler(**sampler_kwargs())
     first.sample(n_walkers=8, n_steps=3, rng=19, checkpoint_file_path=path)
     resumed = MCMCSampler(**sampler_kwargs())
@@ -100,8 +103,9 @@ def test_mcmc_checkpoint_extends_the_chain(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("n_final_samples", [32, 64, 96])
+@pytest.mark.parametrize("suffix", [".h5", ".pkl", ".pickle"])
 def test_smc_checkpoint_replays_uninterrupted_run(
-    tmp_path: Path, n_final_samples: int
+    tmp_path: Path, n_final_samples: int, suffix: str
 ) -> None:
     options = dict(
         max_beta_step=0.2,
@@ -110,7 +114,7 @@ def test_smc_checkpoint_replays_uninterrupted_run(
     )
     full = SMCSampler(**sampler_kwargs())
     full_samples = full.sample(64, rng=71, **options)
-    path = tmp_path / "partial.h5"
+    path = tmp_path / f"partial{suffix}"
     partial = SMCSampler(**sampler_kwargs())
     partial.sample(
         64, rng=71, max_n_steps=2, checkpoint_file_path=path, **options

@@ -14,6 +14,7 @@ from sequince import draw_initial_state, draw_mcmc_initial_state
 from sequince.checkpoint import (
     CheckpointWriter,
     HDF5CheckpointWriter,
+    PickleCheckpointWriter,
     SMCCheckpoint,
 )
 from sequince.proposals import FlowProposal
@@ -86,7 +87,7 @@ class CallbackCheckpointWriter(CheckpointWriter):
 
 
 def load_checkpoint(checkpoint):
-    """Load a Sequince checkpoint from an object, mapping, bytes, or HDF5 file."""
+    """Load a Sequince checkpoint from an object, mapping, or checkpoint file."""
     if checkpoint is None or isinstance(checkpoint, SMCCheckpoint):
         return checkpoint
     if isinstance(checkpoint, Mapping):
@@ -106,6 +107,8 @@ def load_checkpoint(checkpoint):
             "Checkpoint bytes did not contain a Sequince checkpoint"
         )
     if isinstance(checkpoint, (str, Path)):
+        if Path(checkpoint).suffix.lower() in (".pkl", ".pickle"):
+            return SMCCheckpoint.load_pickle(checkpoint)
         with h5py.File(checkpoint, "r") as handle:
             group = handle.get("checkpoint")
             if (
@@ -250,7 +253,12 @@ class Sampler:
         every = every or 1
         writers = []
         if file_path is not None:
-            writers.append(HDF5CheckpointWriter(file_path, every=every))
+            writer_class = (
+                PickleCheckpointWriter
+                if Path(file_path).suffix.lower() in (".pkl", ".pickle")
+                else HDF5CheckpointWriter
+            )
+            writers.append(writer_class(file_path, every=every))
         if callback is not None:
             writers.append(CallbackCheckpointWriter(callback, every=every))
         return writers

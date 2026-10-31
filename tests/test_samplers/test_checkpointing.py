@@ -1,6 +1,8 @@
 import pickle
+from pathlib import Path
 
 import h5py
+import numpy as np
 import pytest
 from sequince.checkpoint import SMCCheckpoint
 from sequince.transforms import IdentityTransform
@@ -108,3 +110,84 @@ def test_smc_resumes_native_checkpoint(sampler_kwargs, tmp_path, caplog):
     assert len(resumed_sampler.history.sample_history) == (
         len(resumed_sampler.result.states) + 1
     )
+
+
+@pytest.mark.parametrize("suffix", [".pkl", ".pickle", ".PKL"])
+@pytest.mark.parametrize("as_string", [False, True])
+def test_load_native_sequince_pickle_checkpoint(
+    sampler_kwargs, tmp_path: Path, suffix: str, as_string: bool
+) -> None:
+    checkpoints = []
+    sampler = SMCSampler(**sampler_kwargs)
+    sampler.sample(
+        12,
+        max_beta_step=0.2,
+        max_n_steps=1,
+        sampler_kwargs={"n_steps": 1},
+        rng=11,
+        checkpoint_callback=checkpoints.append,
+    )
+    path = tmp_path / f"native{suffix}"
+    checkpoints[-1].save_pickle(path)
+    checkpoint = load_checkpoint(str(path) if as_string else path)
+    assert checkpoint.next_iteration == checkpoints[-1].next_iteration
+    np.testing.assert_array_equal(
+        checkpoint.state.particles, checkpoints[-1].state.particles
+    )
+    resume_data = Aspire._load_resume_data(
+        path, "checkpoint", "state", "aspire_config"
+    )
+    assert isinstance(resume_data[0], SMCCheckpoint)
+    assert resume_data[2:5] == (None, None, 12)
+    with pytest.raises(ValueError, match="sampler state only"):
+        Aspire.resume_from_file(
+            str(path),
+            log_prior=sampler_kwargs["log_prior"],
+            log_likelihood=sampler_kwargs["log_likelihood"],
+        )
+
+
+@pytest.mark.parametrize("suffix", [".pkl", ".pickle"])
+@pytest.mark.parametrize("automatic", [False, True])
+def test_aspire_pickle_checkpoint_resume(
+    sampler_kwargs, tmp_path: Path, suffix: str, automatic: bool
+) -> None:
+    def make_aspire() -> Aspire:
+        return Aspire(
+            log_prior=sampler_kwargs["log_prior"],
+            log_likelihood=sampler_kwargs["log_likelihood"],
+            dims=2,
+            parameters=sampler_kwargs["parameters"],
+            flow=type(sampler_kwargs["prior_flow"])(),
+            xp=sampler_kwargs["xp"],
+        )
+
+    path = tmp_path / f"aspire{suffix}"
+    options = dict(
+        sampler="smc", max_beta_step=0.2, sampler_kwargs={"n_steps": 1}
+    )
+    full = make_aspire()
+    expected = full.sample_posterior(12, rng=11, **options)
+    first = make_aspire()
+    if automatic:
+        with first.auto_checkpoint(path):
+            first.sample_posterior(12, rng=11, max_n_steps=1, **options)
+    else:
+        first.sample_posterior(
+            12, rng=11, max_n_steps=1, checkpoint_path=path, **options
+        )
+
+    assert SMCCheckpoint.load_pickle(path).next_iteration == 1
+    resumed = make_aspire()
+    if automatic:
+        with resumed.auto_checkpoint(path, resume=True):
+            assert isinstance(resumed._resume_from_default, SMCCheckpoint)
+            samples = resumed.sample_posterior(**options)
+    else:
+        samples = resumed.sample_posterior(
+            12, resume_from=str(path), checkpoint_path=path, **options
+        )
+    assert samples.beta == 1.0
+    np.testing.assert_array_equal(samples.x, expected.x)
+    assert samples.log_evidence == expected.log_evidence
+    assert SMCCheckpoint.load_pickle(path).next_iteration > 1

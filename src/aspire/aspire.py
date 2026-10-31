@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 import h5py
 from array_api_compat import array_namespace
+from sequince.checkpoint import SMCCheckpoint
 from sequince.flows import flow_state_dict, load_flow_state_dict
 from sequince.transforms import (
     FlowTransform,
@@ -18,7 +19,7 @@ from sequince.transforms import (
 from sequince_density.flows.base import Flow
 
 from .history import FlowHistory, History
-from .samplers.base import Sampler
+from .samplers.base import Sampler, load_checkpoint
 from .samples import Samples
 from .utils import (
     AspireFile,
@@ -467,7 +468,9 @@ class Aspire:
         preconditioning_kwargs: dict
             Keyword arguments to pass to the preconditioning transform.
         checkpoint_path : str | None
-            Path to save the checkpoint. If None, no checkpoint is saved unless
+            HDF5 (.h5/.hdf5) or pickle (.pkl/.pickle) checkpoint path. Pickle
+            files contain sampler state only; config and flow are saved only
+            in HDF5 files. If None, no checkpoint is saved unless
             within an :py:meth:`auto_checkpoint` context or a custom callback
             is provided.
         checkpoint_every : int
@@ -534,6 +537,9 @@ class Aspire:
         )
         if kwargs.get("checkpoint_callback") is not None:
             kwargs.setdefault("checkpoint_every", checkpoint_every)
+        pickle_checkpoint = checkpoint_path is not None and Path(
+            checkpoint_path
+        ).suffix.lower() in (".pkl", ".pickle")
         if checkpoint_path is not None:
             # Check if sampler supports checkpointing
             signatured_sample = signature(self._sampler.sample)
@@ -546,16 +552,17 @@ class Aspire:
             else:
                 kwargs.setdefault("checkpoint_file_path", checkpoint_path)
                 kwargs.setdefault("checkpoint_every", checkpoint_every)
-            with AspireFile(checkpoint_path, "a") as h5_file:
-                if (
-                    self.flow is not None
-                    and not saved_flow
-                    and "flow" not in h5_file
-                ):
-                    self.save_flow(h5_file)
-                    saved_flow = True
-                    if defaults is not None:
-                        defaults["saved_flow"] = True
+            if not pickle_checkpoint:
+                with AspireFile(checkpoint_path, "a") as h5_file:
+                    if (
+                        self.flow is not None
+                        and not saved_flow
+                        and "flow" not in h5_file
+                    ):
+                        self.save_flow(h5_file)
+                        saved_flow = True
+                        if defaults is not None:
+                            defaults["saved_flow"] = True
 
         samples = self._sampler.sample(n_samples, **kwargs)
         self._last_sample_posterior_kwargs = {
@@ -568,7 +575,7 @@ class Aspire:
             "sampler_init_kwargs": sampler_kwargs,
             "sample_kwargs": copy.deepcopy(kwargs),
         }
-        if checkpoint_path is not None:
+        if checkpoint_path is not None and not pickle_checkpoint:
             with AspireFile(checkpoint_path, "a") as h5_file:
                 if checkpoint_save_config and not saved_config:
                     if "aspire_config" in h5_file:
@@ -648,7 +655,7 @@ class Aspire:
         """
         (
             aspire,
-            checkpoint_bytes,
+            checkpoint,
             checkpoint_state,
             sampler_config,
             saved_sampler_type,
@@ -664,7 +671,7 @@ class Aspire:
         )
 
         aspire._set_resume_defaults(
-            checkpoint_bytes=checkpoint_bytes,
+            checkpoint=checkpoint,
             checkpoint_state=checkpoint_state,
             sampler_config=sampler_config,
             saved_sampler_type=saved_sampler_type,
@@ -692,22 +699,25 @@ class Aspire:
         resume: bool = False,
     ):
         """
-        Context manager to auto-save checkpoints, config, and flow to a file.
+        Context manager to auto-save sampler checkpoints to a file.
 
         Within the context, sample_posterior will default to writing checkpoints
-        to the given path with the specified frequency, and will append config/flow
-        after sampling.
+        to the given path with the specified frequency. HDF5 files also store
+        Aspire configuration and the fitted flow; pickle files store only
+        native Sequince sampler state.
 
         Parameters
         ----------
         path : str
-            Path to save the checkpoint file.
+            HDF5 (.h5/.hdf5) or pickle (.pkl/.pickle) checkpoint path.
+            Pickle files store sampler state only; the existing Aspire
+            configuration and fitted flow are used when resuming.
         every : int
             Frequency (in number of sampler iterations) to save the checkpoint.
         save_config : bool
-            Whether to save the Aspire configuration to the checkpoint file.
+            Whether to save the Aspire configuration in an HDF5 checkpoint.
         save_flow : bool
-            Whether to save the flow to the checkpoint file.
+            Whether to save the flow in an HDF5 checkpoint.
         resume : bool
             Whether to attempt to resume from an existing checkpoint at the path.
         """
@@ -737,7 +747,7 @@ class Aspire:
         if resume and path.is_file():
             logger.info(f"Resuming from checkpoint file at {path}")
             (
-                checkpoint_bytes,
+                checkpoint,
                 checkpoint_state,
                 sampler_config,
                 saved_sampler_type,
@@ -754,16 +764,20 @@ class Aspire:
             )
             if requested_n_samples is not None:
                 n_samples = requested_n_samples
-            self._load_flow_from_file(
-                path,
-                flow_path="flow",
-                required=False,
-            )
+            if path.suffix.lower() not in (".pkl", ".pickle"):
+                self._load_flow_from_file(
+                    path,
+                    flow_path="flow",
+                    required=False,
+                )
             self._set_resume_defaults(
-                checkpoint_bytes=checkpoint_bytes,
+                checkpoint=checkpoint,
                 checkpoint_state=checkpoint_state,
                 sampler_config=sampler_config,
-                saved_sampler_type=saved_sampler_type,
+                saved_sampler_type=(
+                    saved_sampler_type
+                    or getattr(self, "_last_sampler_type", None)
+                ),
                 n_samples=n_samples,
             )
             self._skip_flow_training = self.flow is not None
@@ -974,9 +988,24 @@ class Aspire:
         config_path: str,
         sampler_config_path: str = "sampler_config",
     ) -> tuple[
-        bytes | None, dict | None, dict | None, str | None, int | None, Any
+        SMCCheckpoint | None,
+        dict | None,
+        dict | None,
+        str | None,
+        int | None,
+        Any,
     ]:
-        """Load checkpoint bytes and saved resume metadata from file."""
+        """Load a native checkpoint and any saved Aspire resume metadata."""
+        if Path(file_path).suffix.lower() in (".pkl", ".pickle"):
+            checkpoint = load_checkpoint(file_path)
+            return (
+                checkpoint,
+                checkpoint.to_dict(),
+                None,
+                None,
+                len(checkpoint.state.particles),
+                array_namespace(checkpoint.state.particles),
+            )
         with AspireFile(file_path, "r") as h5_file:
             config_dict = (
                 load_from_h5_file(h5_file, config_path)
@@ -989,16 +1018,16 @@ class Aspire:
                 else None
             )
             checkpoint_group = h5_file.get(checkpoint_path)
-            if checkpoint_group is not None and "runtime" in checkpoint_group:
-                from sequince.checkpoint import SMCCheckpoint
-
+            if checkpoint_group is not None and (
+                "runtime" in checkpoint_group
+                or "runtime.previous" in checkpoint_group
+            ):
                 checkpoint = SMCCheckpoint.load_hdf5(
                     h5_file,
                     path=checkpoint_path,
                     dsetname="runtime",
                 )
                 checkpoint_state = checkpoint.to_dict()
-                checkpoint_bytes = pickle.dumps(checkpoint_state)
                 n_samples = len(checkpoint.state.particles)
                 checkpoint_xp = array_namespace(checkpoint.state.particles)
             else:
@@ -1010,19 +1039,14 @@ class Aspire:
                         "Legacy Aspire checkpoints are not compatible with "
                         "the Sequince backend. Start a new sampling run."
                     )
-                try:
-                    checkpoint_bytes = checkpoint_group[checkpoint_dset][
-                        ...
-                    ].tobytes()
-                except Exception:
-                    logger.warning(
-                        "Checkpoint not found at %s/%s in %s; will resume "
-                        "without a checkpoint.",
-                        checkpoint_path,
-                        checkpoint_dset,
-                        file_path,
-                    )
-                    checkpoint_bytes = None
+                logger.warning(
+                    "Checkpoint not found at %s/%s in %s; will resume "
+                    "without a checkpoint.",
+                    checkpoint_path,
+                    checkpoint_dset,
+                    file_path,
+                )
+                checkpoint = None
                 checkpoint_state = None
                 n_samples = None
                 checkpoint_xp = None
@@ -1054,25 +1078,8 @@ class Aspire:
                 stacklevel=2,
             )
 
-        if checkpoint_bytes is not None and checkpoint_state is None:
-            try:
-                checkpoint_state = pickle.loads(checkpoint_bytes)
-                samples_saved = (
-                    checkpoint_state.get("samples")
-                    if checkpoint_state
-                    else None
-                )
-                if samples_saved is not None:
-                    n_samples = len(samples_saved)
-                    if hasattr(samples_saved, "xp"):
-                        checkpoint_xp = samples_saved.xp
-            except Exception:
-                logger.warning(
-                    "Failed to decode checkpoint; proceeding without resume state."
-                )
-
         return (
-            checkpoint_bytes,
+            checkpoint,
             checkpoint_state,
             sampler_config,
             saved_sampler_type,
@@ -1083,7 +1090,7 @@ class Aspire:
     def _set_resume_defaults(
         self,
         *,
-        checkpoint_bytes: bytes | None,
+        checkpoint: SMCCheckpoint | None,
         checkpoint_state: dict | None,
         sampler_config: dict | None,
         saved_sampler_type: str | None,
@@ -1092,13 +1099,13 @@ class Aspire:
         resume_kwargs: dict | None = None,
     ) -> None:
         """Configure default resume state for future sample_posterior calls."""
-        if checkpoint_bytes is None:
+        if checkpoint is None:
             return
 
         sampler_config = sampler_config or {}
         sampler_config.pop("sampler_class", None)
 
-        self._resume_from_default = checkpoint_bytes
+        self._resume_from_default = checkpoint
         self._resume_sampler_type = (
             sampler
             or saved_sampler_type
@@ -1188,6 +1195,12 @@ class Aspire:
         config_path: str,
     ):
         """Construct an Aspire instance, load flow, and gather checkpoint metadata from file."""
+        if Path(file_path).suffix.lower() in (".pkl", ".pickle"):
+            raise ValueError(
+                "Pickle checkpoints contain sampler state only. Resume on "
+                "an existing Aspire instance with sample_posterior("
+                "resume_from=file_path) or auto_checkpoint(resume=True)."
+            )
         with AspireFile(file_path, "r") as h5_file:
             if config_path not in h5_file:
                 raise ValueError(
@@ -1196,7 +1209,7 @@ class Aspire:
             config_dict = load_from_h5_file(h5_file, config_path)
 
         (
-            checkpoint_bytes,
+            checkpoint,
             checkpoint_state,
             sampler_config,
             saved_sampler_type,
@@ -1237,7 +1250,7 @@ class Aspire:
 
         return (
             aspire,
-            checkpoint_bytes,
+            checkpoint,
             checkpoint_state,
             sampler_config,
             saved_sampler_type,

@@ -193,6 +193,8 @@ Use the following methods to persist and later resume work:
   for downstream analysis.
 * :meth:`aspire.Aspire.auto_checkpoint` to store Aspire configuration, its
   fitted proposal, and a native Sequince runtime checkpoint in one HDF5 file.
+  A ``.pkl`` or ``.pickle`` path instead stores native sampler state; resume it
+  on a configured Aspire instance with its fitted proposal flow.
 
 Samplers also accept native Sequince iteration callbacks through ``callbacks``.
 Each callback receives ``(state, context, result)`` after an iteration. A
