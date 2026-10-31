@@ -63,9 +63,16 @@ def test_from_state_without_cache_and_with_overrides(xp, sample_class) -> None:
     assert samples.log_likelihood is None
     assert state.particles.dtype == xp.float64
     if sample_class is SMCSamples:
+        assert samples.beta is None
         overridden = sample_class.from_state(state, beta=0.7, log_evidence=2.0)
         assert overridden.beta == 0.7
         assert overridden.log_evidence == 2.0
+
+
+@pytest.mark.parametrize("beta", [None, 0.0])
+def test_from_state_preserves_explicit_beta(beta: float | None) -> None:
+    state = ParticleState(np.zeros((2, 1)), metadata={"beta": beta})
+    assert SMCSamples.from_state(state).beta == beta
 
 
 def make_simple_samples(n=5, d=2, a=1.234):

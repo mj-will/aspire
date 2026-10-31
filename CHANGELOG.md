@@ -46,6 +46,7 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ### Fixed
 
+- Preserve an unspecified beta as `None` when creating SMC samples from a state.
 - Support native Sequince pickle checkpoint files for SMC/MCMC saving and
   resuming, including Aspire's manual resume and auto-checkpoint workflows.
 - Keep native checkpoint objects when restoring Aspire resume defaults.

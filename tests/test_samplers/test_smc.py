@@ -80,6 +80,7 @@ def test_smc_returns_aspire_samples_and_history(sampler_kwargs):
     assert len(sampler.history.beta) == len(sampler.result.states) == 2
     assert len(sampler.history.sample_history) == 3
     assert sampler.history.sample_history[0].beta == 0.0
+    assert sampler.result.initial_state.metadata["beta"] == 0.0
     assert sampler.history.sample_history[-1].beta == 1.0
     assert len(sampler.history.ess) == 2
     assert len(sampler.history.ess_target) == 2

@@ -1261,8 +1261,8 @@ class SMCSamples(BaseSamples):
             Source particles, cached density components, and SMC metadata.
         **kwargs : Any
             Constructor overrides as in :meth:`BaseSamples.from_state`.
-            Beta and log evidence default to the state values; beta is zero
-            if absent from metadata. Evidence uncertainty is not inferred
+            Beta and log evidence default to the state values; beta remains
+            None if absent from metadata. Evidence uncertainty is not inferred
             from a single state.
 
         Returns
@@ -1271,7 +1271,8 @@ class SMCSamples(BaseSamples):
             SMC samples without additional target evaluations or resampling.
             Native SMC weights are not stored by this container.
         """
-        kwargs.setdefault("beta", float(state.metadata.get("beta", 0.0)))
+        beta = state.metadata.get("beta")
+        kwargs.setdefault("beta", None if beta is None else float(beta))
         kwargs.setdefault("log_evidence", float(state.log_evidence))
         return super().from_state(state, **kwargs)
 

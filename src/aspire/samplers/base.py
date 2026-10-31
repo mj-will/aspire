@@ -445,6 +445,7 @@ class Sampler:
             rng=rng,
             xp=self.xp,
         )
+        state = state.with_updates(metadata={**state.metadata, "beta": 0.0})
         return self._validate_initial_state(state)
 
     def _validate_initial_state(self, state: ParticleState) -> ParticleState:
