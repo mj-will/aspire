@@ -69,7 +69,7 @@ def test_importance_rejects_invalid_flow_outputs(
     message,
 ):
     sampler = ImportanceSampler(**sampler_kwargs)
-    sampler.prior_flow.sample_and_log_prob = lambda *args, **kwargs: (
+    sampler.proposal.sample_and_log_prob = lambda *args, **kwargs: (
         particles,
         log_prob,
     )

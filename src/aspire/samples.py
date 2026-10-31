@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import pandas as pd
+    from sequince.state import ParticleState
 
 
 @dataclass
@@ -370,6 +371,41 @@ class BaseSamples:
             parameters=samples[0].parameters,
             dtype=samples[0].dtype,
         )
+
+    @classmethod
+    def from_state(cls, state: ParticleState, **kwargs: Any) -> Self:
+        """Create samples from a Sequince particle state and cached densities.
+
+        Parameters
+        ----------
+        state : ParticleState
+            Particle population. Cached ``log_prior``, ``log_likelihood``,
+            and ``log_proposal`` components populate the corresponding sample
+            fields; missing components remain None. No target is evaluated.
+        **kwargs : Any
+            Constructor overrides, including parameter names, array namespace,
+            dtype, and device. The state namespace and dtype are used by default.
+
+        Returns
+        -------
+        Self
+            Sample container of the requested class. ``Samples`` computes
+            importance weights and evidence from cached densities when all
+            are present; it does not copy the state's SMC weights.
+        """
+        components = (
+            state.evaluation.components if state.evaluation is not None else {}
+        )
+        arguments = {
+            "x": state.particles,
+            "log_prior": components.get("log_prior"),
+            "log_likelihood": components.get("log_likelihood"),
+            "log_q": components.get("log_proposal"),
+            "xp": array_namespace(state.particles),
+            "dtype": state.particles.dtype,
+            **kwargs,
+        }
+        return cls(**arguments)
 
     @classmethod
     def from_samples(cls, samples: BaseSamples, **kwargs) -> BaseSamples:
@@ -1214,6 +1250,30 @@ class SMCSamples(BaseSamples):
     """Log evidence estimate for the current samples."""
     log_evidence_error: float | None = None
     """Log evidence error estimate for the current samples."""
+
+    @classmethod
+    def from_state(cls, state: ParticleState, **kwargs: Any) -> Self:
+        """Create samples with cached densities, beta, and cumulative evidence.
+
+        Parameters
+        ----------
+        state : ParticleState
+            Source particles, cached density components, and SMC metadata.
+        **kwargs : Any
+            Constructor overrides as in :meth:`BaseSamples.from_state`.
+            Beta and log evidence default to the state values; beta is zero
+            if absent from metadata. Evidence uncertainty is not inferred
+            from a single state.
+
+        Returns
+        -------
+        Self
+            SMC samples without additional target evaluations or resampling.
+            Native SMC weights are not stored by this container.
+        """
+        kwargs.setdefault("beta", float(state.metadata.get("beta", 0.0)))
+        kwargs.setdefault("log_evidence", float(state.log_evidence))
+        return super().from_state(state, **kwargs)
 
     def log_p_t(self, beta):
         log_p_T = self.log_likelihood + self.log_prior

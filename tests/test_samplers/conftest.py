@@ -45,7 +45,7 @@ def sampler_kwargs():
         "log_likelihood": log_likelihood,
         "log_prior": log_prior,
         "dims": 2,
-        "prior_flow": GaussianFlow(),
+        "proposal": GaussianFlow(),
         "xp": xp,
         "parameters": ["x", "y"],
     }

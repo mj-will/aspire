@@ -7,8 +7,15 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
+### Added
+
+- Add `from_state` sample constructors for cached Sequince particle-state
+  conversion, including beta and evidence for `SMCSamples`.
+
 ### Changed
 
+- Rename the sampler constructor argument and stored input from `prior_flow`
+  to `proposal`, preparing the interface for proposal families beyond flows.
 - Require Sequince 0.1.0 or later and keep MiniPCN optional through
   `aspire-inference[minipcn]`.
 - Delegate SMC and MCMC execution and runtime checkpoints to Sequince, and flow
@@ -32,6 +39,8 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ### Deprecated
 
+- Retain `prior_flow` as a deprecated sampler constructor keyword and attribute,
+  and `prior_proposal` as a deprecated alias for the cached proposal adapter.
 - Accept the legacy `beta_tolerance` SMC argument with a `DeprecationWarning`.
   It has no effect with the Sequince backend.
 

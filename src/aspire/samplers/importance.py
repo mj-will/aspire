@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from array_api_compat import array_namespace
 from sequince import TemperedPosterior
 from sequince.utils.random import resolve_rng
 
@@ -44,15 +43,8 @@ class ImportanceSampler(Sampler):
             posterior=posterior,
             rng=rng,
         )
-        components = state.evaluation.components
-        samples = Samples(
-            state.particles,
-            log_q=components["log_proposal"],
-            log_prior=components["log_prior"],
-            log_likelihood=components["log_likelihood"],
-            xp=array_namespace(state.particles),
+        return Samples.from_state(
+            state,
             parameters=self.parameters,
             dtype=self.dtype,
         )
-        samples.compute_weights()
-        return samples

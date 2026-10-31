@@ -39,7 +39,7 @@ class SMCSampler(Sampler):
 
     Parameters
     ----------
-    prior_flow : NormalizingFlow or FlowProposal
+    proposal : NormalizingFlow or FlowProposal
         Fitted proposal in physical coordinates, providing samples of shape
         ``(n_particles, dims)`` and their log densities.
     log_likelihood : callable
@@ -58,6 +58,8 @@ class SMCSampler(Sampler):
         Parameter names. Sample containers generate names when omitted.
     preconditioning_transform : ParticleTransform or None, optional
         Transform used for mutation. None selects an identity transform.
+    prior_flow : NormalizingFlow or FlowProposal or None, optional
+        Deprecated keyword alias for ``proposal``. Do not supply both names.
 
     Notes
     -----
@@ -68,32 +70,23 @@ class SMCSampler(Sampler):
     result: SMCResult
 
     def _state_to_samples(self, state: ParticleState) -> SMCSamples:
-        beta = float(state.metadata.get("beta", 0.0))
-        particles = state.particles
-        samples = SMCSamples(
-            x=particles,
+        samples = SMCSamples.from_state(
+            state,
             parameters=self.parameters,
-            xp=array_namespace(particles),
             dtype=self.dtype,
-            beta=beta,
         )
-        components = (
-            state.evaluation.components if state.evaluation is not None else {}
-        )
-        log_q = components.get("log_proposal")
-        log_prior = components.get("log_prior")
-        log_likelihood = components.get("log_likelihood")
-        samples.log_q = samples.array_to_namespace(
-            self._proposal().log_prob(samples.x) if log_q is None else log_q
-        )
-        samples.log_prior = samples.array_to_namespace(
-            self.log_prior(samples) if log_prior is None else log_prior
-        )
-        samples.log_likelihood = samples.array_to_namespace(
-            self.log_likelihood(samples)
-            if log_likelihood is None
-            else log_likelihood
-        )
+        if samples.log_q is None:
+            samples.log_q = samples.array_to_namespace(
+                self._proposal().log_prob(samples.x)
+            )
+        if samples.log_prior is None:
+            samples.log_prior = samples.array_to_namespace(
+                self.log_prior(samples)
+            )
+        if samples.log_likelihood is None:
+            samples.log_likelihood = samples.array_to_namespace(
+                self.log_likelihood(samples)
+            )
         return samples
 
     def _sample_history(self, result: SMCResult) -> list[SMCSamples]:

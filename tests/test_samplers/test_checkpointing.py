@@ -158,7 +158,7 @@ def test_aspire_pickle_checkpoint_resume(
             log_likelihood=sampler_kwargs["log_likelihood"],
             dims=2,
             parameters=sampler_kwargs["parameters"],
-            flow=type(sampler_kwargs["prior_flow"])(),
+            flow=type(sampler_kwargs["proposal"])(),
             xp=sampler_kwargs["xp"],
         )
 

@@ -35,7 +35,7 @@ def test_beta_tolerance_is_accepted_with_deprecation_warning(
                 log_likelihood=sampler_kwargs["log_likelihood"],
                 dims=2,
                 parameters=sampler_kwargs["parameters"],
-                flow=type(sampler_kwargs["prior_flow"])(),
+                flow=type(sampler_kwargs["proposal"])(),
                 xp=sampler_kwargs["xp"],
             )
             return aspire.sample_posterior(16, sampler="smc", **options)
@@ -106,7 +106,7 @@ def test_smc_rejects_wrong_proposal_event_shape(sampler_kwargs, shape):
             del context
             return xp.zeros(particles.shape[0])
 
-    kwargs = {**sampler_kwargs, "prior_flow": WrongShapeFlow()}
+    kwargs = {**sampler_kwargs, "proposal": WrongShapeFlow()}
     sampler = SMCSampler(**kwargs)
 
     with pytest.raises(ValueError, match=r"must have shape \(n_samples, 2\)"):
@@ -120,7 +120,7 @@ def test_aspire_runs_smc_end_to_end(sampler_kwargs):
         dims=2,
         parameters=["x", "y"],
         prior_bounds={"x": (-10, 10), "y": (-10, 10)},
-        flow=type(sampler_kwargs["prior_flow"])(),
+        flow=type(sampler_kwargs["proposal"])(),
         xp=xp,
     )
 
@@ -175,7 +175,7 @@ def test_smc_mutates_additional_final_samples(sampler_kwargs, monkeypatch):
         (True, 8),
     ):
         kwargs = dict(sampler_kwargs)
-        kwargs["prior_flow"] = type(sampler_kwargs["prior_flow"])()
+        kwargs["proposal"] = type(sampler_kwargs["proposal"])()
         sampler = SMCSampler(**kwargs)
         samples = sampler.sample(
             16,
@@ -229,7 +229,7 @@ def test_minipcn_smc_converts_torch_flow_samples_to_numpy_backend():
         log_likelihood=numpy_log_likelihood,
         log_prior=numpy_log_prior,
         dims=2,
-        prior_flow=TorchGaussianFlow(),
+        proposal=TorchGaussianFlow(),
         xp=xp,
         parameters=["x", "y"],
     )
@@ -280,7 +280,7 @@ def test_aspire_forwards_checkpoint_callback_cadence(sampler_kwargs):
         dims=2,
         parameters=["x", "y"],
         prior_bounds={"x": (-10, 10), "y": (-10, 10)},
-        flow=type(sampler_kwargs["prior_flow"])(),
+        flow=type(sampler_kwargs["proposal"])(),
         xp=xp,
     )
 
@@ -351,7 +351,7 @@ def test_blackjax_smc_runs():
         log_likelihood=jax_log_likelihood,
         log_prior=jax_log_prior,
         dims=2,
-        prior_flow=JaxGaussianFlow(),
+        proposal=JaxGaussianFlow(),
         xp=jnp,
         parameters=["x", "y"],
     )

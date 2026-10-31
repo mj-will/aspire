@@ -408,7 +408,7 @@ class Aspire:
             log_likelihood=self.log_likelihood,
             log_prior=self.log_prior,
             dims=self.dims,
-            prior_flow=self.flow,
+            proposal=self.flow,
             xp=self.xp,
             dtype=self.dtype,
             preconditioning_transform=transform,

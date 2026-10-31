@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import pickle
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, TypeAlias, overload
@@ -160,7 +161,7 @@ class Sampler:
 
     Parameters
     ----------
-    prior_flow : NormalizingFlow or FlowProposal
+    proposal : NormalizingFlow or FlowProposal
         Fitted proposal providing particle samples and their log densities.
         Samples must have shape ``(n_particles, dims)``.
     log_likelihood : callable
@@ -181,13 +182,31 @@ class Sampler:
     preconditioning_transform : ParticleTransform or None, optional
         Sequince coordinate transform applied during mutation. None selects
         an identity transform. The proposal flow remains in physical space.
+    prior_flow : NormalizingFlow or FlowProposal or None, optional
+        Deprecated keyword alias for ``proposal``. Supplying both names
+        raises TypeError.
     """
 
     mutation = "minipcn"
     sample: Callable[..., BaseSamples]
 
+    @overload
     def __init__(
         self,
+        proposal: NormalizingFlow | FlowProposal,
+        log_likelihood: Callable[[BaseSamples], Array],
+        log_prior: Callable[[BaseSamples], Array],
+        dims: int,
+        xp: Any,
+        dtype: Any | str | None = None,
+        parameters: list[str] | None = None,
+        preconditioning_transform: ParticleTransform | None = None,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        *,
         prior_flow: NormalizingFlow | FlowProposal,
         log_likelihood: Callable[[BaseSamples], Array],
         log_prior: Callable[[BaseSamples], Array],
@@ -196,12 +215,44 @@ class Sampler:
         dtype: Any | str | None = None,
         parameters: list[str] | None = None,
         preconditioning_transform: ParticleTransform | None = None,
+    ) -> None: ...
+
+    def __init__(
+        self,
+        proposal: NormalizingFlow | FlowProposal | None = None,
+        log_likelihood: Callable[[BaseSamples], Array] | None = None,
+        log_prior: Callable[[BaseSamples], Array] | None = None,
+        dims: int | None = None,
+        xp: Any = None,
+        dtype: Any | str | None = None,
+        parameters: list[str] | None = None,
+        preconditioning_transform: ParticleTransform | None = None,
+        *,
+        prior_flow: NormalizingFlow | FlowProposal | None = None,
     ) -> None:
-        self.prior_flow = prior_flow
-        self.prior_proposal = _ValidatedFlowProposal(
-            prior_flow.flow
-            if isinstance(prior_flow, FlowProposal)
-            else prior_flow,
+        if prior_flow is not None:
+            if proposal is not None:
+                raise TypeError("Specify only one of proposal and prior_flow.")
+            warnings.warn(
+                "prior_flow is deprecated; use proposal instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            proposal = prior_flow
+        if proposal is None:
+            raise TypeError("A proposal is required.")
+        if (
+            log_likelihood is None
+            or log_prior is None
+            or dims is None
+            or xp is None
+        ):
+            raise TypeError(
+                "log_likelihood, log_prior, dims and xp are required."
+            )
+        self.proposal = proposal
+        self._validated_proposal = _ValidatedFlowProposal(
+            proposal.flow if isinstance(proposal, FlowProposal) else proposal,
             dims,
         )
         self._log_likelihood = log_likelihood
@@ -218,6 +269,44 @@ class Sampler:
             if preconditioning_transform is None
             else preconditioning_transform
         )
+
+    @property
+    def prior_flow(self) -> NormalizingFlow | FlowProposal:
+        """Deprecated alias for the supplied proposal."""
+        warnings.warn(
+            "prior_flow is deprecated; use proposal instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.proposal
+
+    @prior_flow.setter
+    def prior_flow(self, value: NormalizingFlow | FlowProposal) -> None:
+        warnings.warn(
+            "prior_flow is deprecated; use proposal instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.proposal = value
+
+    @property
+    def prior_proposal(self) -> FlowProposal:
+        """Deprecated access to the cached proposal adapter."""
+        warnings.warn(
+            "prior_proposal is deprecated; use _proposal() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._validated_proposal
+
+    @prior_proposal.setter
+    def prior_proposal(self, value: _ValidatedFlowProposal) -> None:
+        warnings.warn(
+            "prior_proposal is deprecated; use the proposal constructor argument instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._validated_proposal = value
 
     def log_likelihood(self, samples: BaseSamples) -> Array:
         """Evaluate the log likelihood and update the evaluation counter."""
@@ -318,7 +407,7 @@ class Sampler:
         )
 
     def _proposal(self) -> FlowProposal:
-        return self.prior_proposal
+        return self._validated_proposal
 
     def _particle_transform(self) -> ParticleTransform:
         return self.preconditioning_transform
@@ -359,7 +448,7 @@ class Sampler:
         return self._validate_initial_state(state)
 
     def _validate_initial_state(self, state: ParticleState) -> ParticleState:
-        self.prior_proposal._validate(state.particles)
+        self._validated_proposal._validate(state.particles)
         return state
 
     def _mcmc_initial_state(

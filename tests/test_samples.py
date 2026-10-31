@@ -4,6 +4,8 @@ import pickle
 import h5py
 import numpy as np
 import pytest
+from sequince.state import ParticleState
+from sequince.target import TargetEvaluation
 
 from aspire.samples import (
     BaseSamples,
@@ -12,6 +14,58 @@ from aspire.samples import (
     Samples,
     SMCSamples,
 )
+
+
+@pytest.mark.parametrize("sample_class", [BaseSamples, Samples, SMCSamples])
+def test_from_state_cached_components(xp, sample_class) -> None:
+    particles = xp.asarray([[0.0, 1.0], [2.0, 3.0]], dtype=xp.float64)
+    components = {
+        "log_prior": xp.asarray([-1.0, -2.0]),
+        "log_likelihood": xp.asarray([-3.0, -4.0]),
+        "log_proposal": xp.asarray([-0.5, -1.0]),
+    }
+    state = ParticleState(
+        particles,
+        log_weights=xp.asarray([-0.1, -2.0]),
+        log_normalizing_constant=1.25,
+        evaluation=TargetEvaluation(components=components),
+        metadata={"beta": 0.4},
+    )
+    samples = sample_class.from_state(state, parameters=["a", "b"])
+    assert isinstance(samples, sample_class)
+    assert samples.xp is xp
+    assert samples.x.dtype == particles.dtype
+    assert samples.parameters == ["a", "b"]
+    assert bool(xp.all(samples.x == particles))
+    assert bool(xp.all(samples.log_q == components["log_proposal"]))
+    assert bool(xp.all(samples.log_prior == components["log_prior"]))
+    assert bool(xp.all(samples.log_likelihood == components["log_likelihood"]))
+    if sample_class is Samples:
+        expected = (
+            components["log_prior"]
+            + components["log_likelihood"]
+            - components["log_proposal"]
+        )
+        assert bool(xp.all(samples.log_w == expected))
+    if sample_class is SMCSamples:
+        assert samples.beta == 0.4
+        assert samples.log_evidence == 1.25
+        assert samples.log_evidence_error is None
+
+
+@pytest.mark.parametrize("sample_class", [BaseSamples, Samples, SMCSamples])
+def test_from_state_without_cache_and_with_overrides(xp, sample_class) -> None:
+    state = ParticleState(xp.asarray([[0.0], [1.0]], dtype=xp.float64))
+    samples = sample_class.from_state(state, dtype="float32", parameters=["x"])
+    assert samples.x.dtype == xp.float32
+    assert samples.log_q is None
+    assert samples.log_prior is None
+    assert samples.log_likelihood is None
+    assert state.particles.dtype == xp.float64
+    if sample_class is SMCSamples:
+        overridden = sample_class.from_state(state, beta=0.7, log_evidence=2.0)
+        assert overridden.beta == 0.7
+        assert overridden.log_evidence == 2.0
 
 
 def make_simple_samples(n=5, d=2, a=1.234):

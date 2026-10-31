@@ -53,7 +53,7 @@ def log_likelihood(samples: Samples) -> np.ndarray:
 
 def sampler_kwargs() -> dict[str, Any]:
     return dict(
-        prior_flow=GaussianProposal(),
+        proposal=GaussianProposal(),
         log_prior=log_prior,
         log_likelihood=log_likelihood,
         dims=2,
