@@ -123,6 +123,18 @@ def build_particle_transform(
     """Build a Sequince transform from Aspire's parameter configuration."""
     transforms = []
     periodic_parameters = periodic_parameters or []
+    for parameter in periodic_parameters:
+        bounds = (prior_bounds or {}).get(parameter)
+        if (
+            parameter not in (parameters or ())
+            or bounds is None
+            or len(bounds) != 2
+            or not all(math.isfinite(value) for value in bounds)
+        ):
+            raise ValueError(
+                f"Periodic parameter '{parameter}' requires a declared "
+                "parameter and finite lower and upper prior bounds."
+            )
 
     periodic_bounds = _indexed_bounds(
         parameters,

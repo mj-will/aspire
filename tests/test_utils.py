@@ -2,7 +2,9 @@ import functools
 import io
 import logging
 import pickle
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import array_api_compat.numpy as np_xp
 import h5py
@@ -16,8 +18,123 @@ from aspire.utils import (
     convert_dtype,
     dump_state,
     function_id,
+    get_flow_class,
     resolve_dtype,
 )
+
+
+@pytest.mark.parametrize(
+    ("backend", "module", "class_name"),
+    [
+        ("zuko", "sequince_density.flows.zuko", "ZukoFlow"),
+        ("flowjax", "sequince_density.flows.flowjax", "FlowJax"),
+    ],
+)
+def test_get_flow_class_builtin(
+    backend: str, module: str, class_name: str
+) -> None:
+    implementation = pytest.importorskip(module)
+    assert get_flow_class(backend) is getattr(implementation, class_name)
+    with pytest.raises(NotImplementedError, match="Flow matching"):
+        get_flow_class(backend, flow_matching=True)
+
+
+def test_get_flow_class_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
+    flow_class = type("PluginFlow", (), {"xp": np_xp})
+    load = Mock(return_value=flow_class)
+    entry_points = Mock(
+        return_value=[SimpleNamespace(name="Custom", load=load)]
+    )
+    monkeypatch.setattr("importlib.metadata.entry_points", entry_points)
+
+    assert get_flow_class("custom") is flow_class
+    entry_points.assert_called_once_with(group="aspire.flows")
+    load.assert_called_once_with()
+    with pytest.raises(NotImplementedError, match="Flow matching"):
+        get_flow_class("custom", flow_matching=True)
+
+
+@pytest.mark.parametrize("attributes", [{}, {"xp": None}])
+def test_get_flow_class_plugin_requires_namespace(
+    monkeypatch: pytest.MonkeyPatch, attributes: dict[str, Any]
+) -> None:
+    flow_class = type("PluginFlow", (), attributes)
+    entry_point = SimpleNamespace(
+        name="custom", load=Mock(return_value=flow_class)
+    )
+    monkeypatch.setattr(
+        "importlib.metadata.entry_points", lambda **kwargs: [entry_point]
+    )
+    with pytest.raises(ValueError, match="does not define an `xp` attribute"):
+        get_flow_class("custom")
+
+
+def test_get_flow_class_unknown_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry_point = SimpleNamespace(name="custom", load=Mock())
+    monkeypatch.setattr(
+        "importlib.metadata.entry_points", lambda **kwargs: [entry_point]
+    )
+    with pytest.raises(ValueError, match="Unknown backend 'missing'") as error:
+        get_flow_class("missing")
+    assert "['zuko', 'flowjax', 'custom']" in str(error.value)
+    entry_point.load.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "prior_bounds",
+    [
+        None,
+        {},
+        {"other": (0.0, 1.0)},
+        {"angle": (-np_xp.inf, 1.0)},
+        {"angle": (0.0, np_xp.inf)},
+        {"angle": (np_xp.nan, 1.0)},
+        {"angle": (0.0, np_xp.nan)},
+        {"angle": (0.0,)},
+    ],
+)
+def test_particle_transform_requires_finite_periodic_bounds(
+    prior_bounds: dict[str, tuple[float, ...]] | None,
+) -> None:
+    with pytest.raises(ValueError, match="Periodic parameter 'angle'.*finite"):
+        build_particle_transform(
+            parameters=["other", "angle"],
+            prior_bounds=prior_bounds,
+            periodic_parameters=["angle"],
+        )
+
+
+def test_particle_transform_validates_every_periodic_parameter() -> None:
+    with pytest.raises(ValueError, match="Periodic parameter 'second'"):
+        build_particle_transform(
+            parameters=["first", "second"],
+            prior_bounds={"first": (0.0, 1.0)},
+            periodic_parameters=["first", "second"],
+        )
+
+
+def test_particle_transform_rejects_undeclared_periodic_parameter() -> None:
+    with pytest.raises(ValueError, match="Periodic parameter 'angle'"):
+        build_particle_transform(
+            parameters=["other"],
+            prior_bounds={"angle": (0.0, 1.0)},
+            periodic_parameters=["angle"],
+        )
+
+
+def test_particle_transform_wraps_periodic_coordinates(xp: Any) -> None:
+    transform = build_particle_transform(
+        parameters=["angle", "other"],
+        prior_bounds={"angle": (0.0, 2.0)},
+        periodic_parameters=["angle"],
+        affine_transform=False,
+    )
+    particles = xp.asarray([[-0.5, 3.0], [2.5, -4.0]])
+    transformed, _, _ = transform.forward(particles)
+    expected = xp.asarray([[1.5, 3.0], [0.5, -4.0]])
+    assert bool(xp.all(xp.abs(transformed - expected) < 1e-7))
 
 
 def test_bounded_transform_preserves_custom_epsilon(xp: Any) -> None:
