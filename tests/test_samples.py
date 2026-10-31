@@ -152,6 +152,7 @@ def test_basesamples_from_dict(base_samples, flat):
 
 
 def test_basesamples_to_dataframe_include(base_samples):
+    pytest.importorskip("pandas")
     df = base_samples.to_dataframe(include=["log_likelihood"])
     assert "log_likelihood" in df.columns
     assert "log_prior" not in df.columns
@@ -307,6 +308,7 @@ def test_samples_rejection_sample_accepts_proportionally():
 
 
 def test_samples_to_dataframe():
+    pytest.importorskip("pandas")
     x, ll, lp, lq = make_simple_samples(n=4, d=2, a=0.5)
     s = Samples(
         x=x, log_likelihood=ll, log_prior=lp, log_q=lq, parameters=["a", "b"]
@@ -791,6 +793,7 @@ def test_smcsamples_to_dict_includes_smc_fields():
 
 
 def test_smc_samples_to_dataframe():
+    pytest.importorskip("pandas")
     x, ll, lp, lq = make_simple_samples(n=3, d=2, a=0.4)
     smc = SMCSamples(
         x=x,

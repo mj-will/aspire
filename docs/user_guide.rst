@@ -17,8 +17,8 @@ Workflow overview
 3. **Fit a proposal** with :meth:`aspire.Aspire.fit` to learn a proposal
    tailored to the current posterior (normalising flow by default).
 4. **Sample the posterior** using :meth:`aspire.Aspire.sample_posterior`
-   with either importance sampling or an adaptive SMC kernel (MiniPCN,
-   BlackJAX, or custom samplers).
+   with importance sampling, MCMC, or adaptive SMC. Sequince owns the MCMC
+   and SMC execution.
 5. **Inspect, save, and reuse** the resulting
    :class:`aspire.samples.Samples`, :class:`aspire.history.History`
    objects, and the fitted flow.
@@ -44,19 +44,15 @@ switch namespaces or merge multiple runs with
 Flows and transforms
 --------------------
 
-Aspire can work with any flow that implements ``sample_and_log_prob`` and
-``log_prob``. Flows are defined via
-:class:`aspire.flows.base.Flow` and instantiated by
-:meth:`aspire.Aspire.init_flow`. By default Aspire uses the ``zuko``
-implementation of Masked Autoregressive Flows on top of PyTorch. The flow is
-automatically wrapped with :class:`aspire.transforms.FlowTransform` (or a
-composite of bounded / periodic transforms) so you can work with native
-parameter ranges while still optimising in unconstrained space.
+Aspire uses the flow implementations from ``sequince-density``, which implement
+the normalizing-flow protocol defined by Sequince. By default Aspire uses its
+``zuko`` implementation of Masked Autoregressive Flows on top of PyTorch. A
+composition of :mod:`sequince.transforms` is attached to the flow so you can
+work with native parameter ranges while still optimising in unconstrained
+space.
 
 You can choose a backend by setting ``flow_backend="flowjax"`` to leverage JAX
-or by providing a fully constructed ``flow`` instance. When ``flow_matching``
-is enabled, Aspire trains a score-based model instead of a classical density
-estimator (requires the `zuko` backend).
+or by providing a fully constructed ``flow`` instance.
 
 External flow implementations can be plugged in via the
 ``aspire.flows`` entry point group. See :ref:`custom_flows` for details.
@@ -67,16 +63,15 @@ Transform mechanics
 Aspire keeps a clear separation between your native parameters and the space
 where flows or kernels operate:
 
-* :class:`aspire.transforms.FlowTransform` is attached to every flow created by
-  :meth:`aspire.Aspire.init_flow`. By default, it maps bounded parameters to the real line (``probit`` or
-  ``logit``), and recentres / rescales dimensions with an affine
+* A :class:`sequince.transforms.CompositeTransform` is attached to every flow
+  created by :meth:`aspire.Aspire.init_flow`. By default, it maps bounded
+  parameters to the real line with a logit and recentres / rescales dimensions with an affine
   transform learned from the training samples. Log-Jacobian terms are tracked so
   calls to ``log_prob`` or ``sample_and_log_prob`` remain properly normalised.
   ``bounded_to_unbounded`` and ``affine_transform`` can be specified when creating
   the Aspire instance to control this behaviour.
-* The same components are exposed via :class:`aspire.transforms.CompositeTransform`
-  if you want to opt out of the bounded-to-unbounded step or the affine
-  whitening when building custom transports.
+* The individual components are exposed by :mod:`sequince.transforms` for
+  custom transports.
 
 Preconditioning inside samplers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -87,18 +82,20 @@ then call ``inverse(...)`` (including the log-Jacobian) whenever the likelihood
 or prior is evaluated. Configure it via
 :meth:`aspire.Aspire.sample_posterior`:
 
-* ``"default"`` / ``"standard"`` uses :class:`aspire.transforms.CompositeTransform`
+* ``"default"`` / ``"standard"`` uses Sequince's
+  :class:`sequince.transforms.CompositeTransform`
   with bounded-to-unbounded and affine scaling turned off by default; periodic
   wrapping still applies. To whiten dimensions or map bounds to the real line,
   pass ``preconditioning_kwargs={"affine_transform": True, "bounded_to_unbounded": True}``.
-* ``"flow"`` fits a lightweight :class:`aspire.transforms.FlowPreconditioningTransform`
-  to the current particles and treats it as a transport map during SMC/MCMC
-  updates. This reuses the same bounded / periodic handling while providing a
-  richer geometry for the kernels.
-* ``None`` leaves the sampler in the original parameterisation with an identity
-  transform. The importance sampler defaults to this; other samplers default to
-  ``"standard"`` so periodic parameters are at least kept consistent with their
-  bounds.
+* ``"flow"`` fits a second density flow to the current particles and wraps it
+  in :class:`sequince.transforms.FlowTransform` for SMC/MCMC updates. This
+  reuses bounded handling while providing a richer geometry for the kernels.
+  Periodic parameters receive the same bounded and affine treatment as other
+  parameters in the flow. Their periodic topology is not modeled by the flow,
+  and flow preconditioning does not apply periodic wrapping.
+* ``"none"`` leaves the sampler in the original parameterisation with an identity
+  transform. With ``preconditioning=None``, the importance sampler uses this
+  identity transform; MCMC and SMC choose ``"default"`` instead.
 
 
 .. note::
@@ -128,13 +125,14 @@ Markov chain Monte Carlo
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``minipcn``
-    Runs the :class:`aspire.samplers.mcmc.MiniPCN` kernel directly (no SMC
-    temperature ladder). Configure ``n_samples`` and pass MCMC kwargs such as
-    ``n_steps`` or ``step_fn`` via ``sampler_kwargs``.
+    Runs a Sequince MiniPCN mutation pipeline directly (no SMC temperature
+    ladder). Configure ``n_samples`` and pass MCMC options such as ``n_steps``
+    or ``step_fn``.
 ``emcee``
-    Uses the :class:`aspire.samplers.mcmc.Emcee` ensemble sampler for
-    gradient-free proposals. Provide ``sampler_kwargs`` like ``nwalkers`` or
-    ``n_steps`` to control the chain length.
+    Runs Sequince's emcee mutation pipeline for gradient-free proposals.
+    Options such as ``nwalkers`` and ``n_steps`` control the chain. Set
+    ``vectorize=True`` to evaluate walkers in batches. This is particularly
+    useful with JAX likelihoods and flows.
 
 Sequential Monte Carlo
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -143,20 +141,47 @@ Sequential Monte Carlo
     Runs adaptive SMC with the MiniPCN MCMC kernel. Configure the number of
     particles via ``n_samples`` and pass kernel settings in ``sampler_kwargs``
     (for example ``n_steps``, ``target_acceptance_rate`` or ``step_fn``).
-``blackjax_smc``
-    Uses BlackJAX kernels (requires the ``blackjax`` extra) while keeping the
-    same adaptive temperature schedule as the MiniPCN backend.
 ``emcee_smc``
     Replaces the internal MCMC move with the ``emcee`` ensemble sampler,
     providing a gradient-free option that still benefits from SMC tempering.
+    Use ``sampler_kwargs={"vectorize": True}`` for batched evaluation.
+``blackjax_smc``
+    Uses Sequince's BlackJAX mutation step for JAX-backed particles. Use
+    ``flow_backend="flowjax"`` with JAX-compatible likelihood and prior callbacks.
+    Install the ``blackjax`` extra and select ``nuts``, ``hmc``, or
+    ``random-walk`` through ``sampler_kwargs``.
+
+SMC limits and final samples
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``max_n_steps`` limits adaptive SMC iterations; it does not force the schedule to
+reach beta one by increasing the minimum beta step. If a run stops early,
+Aspire logs a warning and returns the intermediate target with its actual
+``samples.beta``. Resume its checkpoint to continue towards the posterior.
+
+The returned SMC population is resampled with replacement, including when the
+requested final count equals the particle count. Reducing ``n_final_samples``
+only resamples; increasing it resamples and mutates through Sequince's
+``draw_additional_samples`` helper. ``sampler_kwargs["n_final_steps"]`` controls
+that additional mutation and has no effect when reducing the count. These
+choices change RNG consumption and can introduce duplicate output particles.
+
+The previous ``beta_tolerance`` option is not accepted; use ``min_beta_step``
+and ``max_beta_step`` to constrain increments. These bound the schedule and do
+not provide a separate root-search tolerance.
 
 History, diagnostics, and persistence
 -------------------------------------
 
-Every sampler attaches a history object (see :mod:`aspire.history`) with
-diagnostic metrics such as effective sample size, intermediate temperatures,
-or acceptance rates. Plot them via :meth:`aspire.history.SMCHistory.plot` or
-specialised helpers like :meth:`aspire.history.SMCHistory.plot_beta`.
+SMC samplers expose an Aspire :class:`aspire.history.SMCHistory` through
+``aspire.sampler.history`` for compatibility with existing analysis code. It
+contains temperatures, pre-resampling effective sample sizes, evidence
+increments, mutation diagnostics, and optionally the particle population from
+each iteration. The native Sequince result remains available through
+``aspire.sampler.result``.
+
+Standalone MCMC samplers continue to expose their native Sequince result
+through both ``aspire.sampler.history`` and ``aspire.sampler.result``.
 
 Use the following methods to persist and later resume work:
 
@@ -166,6 +191,13 @@ Use the following methods to persist and later resume work:
   :meth:`aspire.Aspire.save_config_to_json` to capture all hyperparameters.
 * :meth:`aspire.samples.BaseSamples.save` to store weighted samples in HDF5
   for downstream analysis.
+* :meth:`aspire.Aspire.auto_checkpoint` to store Aspire configuration, its
+  fitted proposal, and a native Sequince runtime checkpoint in one HDF5 file.
+
+Samplers also accept native Sequince iteration callbacks through ``callbacks``.
+Each callback receives ``(state, context, result)`` after an iteration. A
+``checkpoint_callback`` instead receives a committed
+``sequince.checkpoint.SMCCheckpoint`` at the ``checkpoint_every`` cadence.
 
 Together these utilities support iterative workflows where you continuously
 refine the proposal distribution, reuse expensive likelihood evaluations, and

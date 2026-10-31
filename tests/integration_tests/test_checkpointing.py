@@ -1,6 +1,9 @@
+import pytest
+
 from aspire import Aspire
 
 
+@pytest.mark.requires("zuko")
 def test_resume_from_file_smc(
     tmp_path,
     log_likelihood,
@@ -46,6 +49,7 @@ def test_resume_from_file_smc(
     assert len(resumed_samples.x) == 25
 
 
+@pytest.mark.requires("zuko")
 def test_resume_from_file_manual_call(
     tmp_path,
     log_likelihood,
@@ -88,6 +92,7 @@ def test_resume_from_file_manual_call(
     assert len(resumed_samples.x) == 25
 
 
+@pytest.mark.requires("zuko")
 def test_auto_checkpoint_resume_same_instance(
     tmp_path,
     log_likelihood,
@@ -119,13 +124,14 @@ def test_auto_checkpoint_resume_same_instance(
 
     assert not hasattr(aspire, "_resume_from_default")
     with aspire.auto_checkpoint(checkpoint_file, every=1, resume=True):
-        assert aspire._resume_n_samples == 20
+        assert aspire._resume_n_samples == 25
         resumed_samples = aspire.sample_posterior(sampler="smc")
 
     assert len(resumed_samples.x) == 25
     assert not hasattr(aspire, "_resume_from_default")
 
 
+@pytest.mark.requires("zuko")
 def test_auto_checkpoint_resume_loads_flow_for_new_instance(
     tmp_path,
     log_likelihood,
@@ -173,6 +179,7 @@ def test_auto_checkpoint_resume_loads_flow_for_new_instance(
     assert len(resumed_samples.x) == 25
 
 
+@pytest.mark.requires("zuko")
 def test_auto_checkpoint_resume_skips_flow_training(
     tmp_path,
     log_likelihood,

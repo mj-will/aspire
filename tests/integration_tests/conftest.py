@@ -59,6 +59,12 @@ def bounded_to_unbounded(request):
 
 @pytest.fixture(params=["zuko", "flowjax"])
 def flow_backend(request):
+    if request.param == "zuko":
+        pytest.importorskip("torch")
+        pytest.importorskip("zuko")
+    else:
+        pytest.importorskip("jax")
+        pytest.importorskip("flowjax")
     return request.param
 
 
@@ -70,9 +76,10 @@ def samples_backend(request):
 @pytest.fixture
 def xp(samples_backend):
     if samples_backend == "jax":
-        import jax.numpy as xp
+        xp = pytest.importorskip("jax.numpy")
     elif samples_backend == "torch":
-        import array_api_compat.torch as xp
+        pytest.importorskip("torch")
+        xp = pytest.importorskip("array_api_compat.torch")
     elif samples_backend == "numpy":
         import array_api_compat.numpy as xp
     else:
@@ -127,14 +134,17 @@ def sampler_config(request):
         return SamplerConfig(
             sampler="emcee",
             sampler_kwargs={
-                "nsteps": 100,
+                # This matrix exercises adapters and persistence. Dedicated
+                # Gaussian tests use longer chains to check sampling accuracy.
+                "nsteps": 5,
+                "vectorize": True,
             },
         )
     elif request.param == "minipcn":
         return SamplerConfig(
             sampler="minipcn",
             sampler_kwargs={
-                "n_steps": 500,
+                "n_steps": 5,
             },
         )
     elif request.param in ["smc", "minipcn_smc"]:
@@ -155,6 +165,7 @@ def sampler_config(request):
                 "sampler_kwargs": {
                     "nsteps": 10,
                     "progress": False,
+                    "vectorize": True,
                 },
             },
         )
@@ -164,8 +175,8 @@ def sampler_config(request):
             sampler_kwargs={
                 "adaptive": True,
                 "sampler_kwargs": {
-                    "algorithm": "rwmh",
-                    "sigma": 0.1,
+                    "algorithm": "random-walk",
+                    "algorithm_kwargs": {"sigma": 0.1},
                     "n_steps": 10,
                 },
             },
@@ -177,7 +188,7 @@ def sampler_config(request):
                 "adaptive": True,
                 "sampler_kwargs": {
                     "algorithm": "nuts",
-                    "step_size": 0.1,
+                    "algorithm_kwargs": {"step_size": 0.1},
                     "n_steps": 10,
                 },
             },

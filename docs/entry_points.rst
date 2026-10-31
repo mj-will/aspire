@@ -20,10 +20,14 @@ entry point in your ``pyproject.toml`` like so:
     myflow = "my_module:MyFlowClass"
 
 
-The specified class must inherit from :class:`aspire.flows.base.Flow` (or one
-of the existing flow wrappers), implement the required methods and define the
-``xp`` attribute which specifies the array namespace.
+The specified class must implement :class:`sequince.flows.NormalizingFlow` (or
+inherit from ``sequince_density.flows.base.Flow``), implement the required
+methods, and define the ``xp`` attribute which specifies the array namespace.
 You can then select your custom flow by setting
 ``flow_backend="myflow"`` when initializing Aspire.
 
-For an example see ``GWFlow`` in ``aspire-gw`` (https://github.com/mj-will/aspire-gw).
+Provide ``sample_and_log_prob`` for direct flow sampling and ``state_dict`` /
+``load_state_dict`` for persistence. Subclassing the Sequince Density base class
+also records constructor arguments for Aspire's flow loader. Plugins written
+against the removed Aspire ``Flow`` base class need to adopt these interfaces;
+the entry-point group name itself is unchanged.

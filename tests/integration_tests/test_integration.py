@@ -9,6 +9,7 @@ def dtype(request):
     return request.param
 
 
+@pytest.mark.requires("zuko")
 def test_integration_zuko(
     log_likelihood,
     log_prior,
@@ -96,6 +97,7 @@ def test_integration_flowjax(
         posterior_samples.save(h5_file, path="posterior_samples")
 
 
+@pytest.mark.requires("zuko")
 def test_init_existing_flow(
     log_likelihood,
     log_prior,
@@ -129,6 +131,7 @@ def test_init_existing_flow(
 
 
 @pytest.mark.parametrize("value", [float("-inf"), float("nan"), float("inf")])
+@pytest.mark.requires("zuko")
 def test_smc_log_likelihood_with_invalid_value(
     log_likelihood,
     log_prior,
@@ -160,7 +163,8 @@ def test_smc_log_likelihood_with_invalid_value(
     assert not xp.isfinite(log_likelihood_with_hole(samples)).all()
 
     aspire.fit(samples, n_epochs=5)
-    aspire.sample_posterior(
-        n_samples=100,
-        sampler="smc",
-    )
+    if value == float("-inf"):
+        aspire.sample_posterior(n_samples=100, sampler="smc")
+    else:
+        with pytest.raises(ValueError, match=r"NaN or \+inf"):
+            aspire.sample_posterior(n_samples=100, sampler="smc")

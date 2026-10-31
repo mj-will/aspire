@@ -3,6 +3,12 @@ Checkpointing and Resuming
 
 Aspire provides a few simple patterns to resume long runs.
 
+.. warning::
+
+   Saved flows and sampler checkpoints from the pre-Sequince Aspire backend
+   cannot be resumed by this backend. Refit the proposal and start a new
+   checkpoint file. Existing sample datasets can still be loaded independently.
+
 Saving checkpoints while sampling
 ---------------------------------
 
@@ -17,13 +23,14 @@ Saving checkpoints while sampling
 What gets saved
 ^^^^^^^^^^^^^^^
 
-- The sampler stores checkpoints under ``/checkpoint/state`` in the HDF5 file.
+- Sequince stores its runtime checkpoint under ``/checkpoint/runtime`` in the
+  HDF5 file, with iteration history alongside it.
 - Aspire writes ``/aspire_config`` for Aspire-level configuration,
   ``/sampler_config`` for sampler metadata, and ``/flow`` for the saved flow.
   If these already exist, they are overwritten when saving.
-- ``resume_from_file`` and ``auto_checkpoint(..., resume=True)`` also accept
-  legacy files where sampler metadata was embedded inside ``/aspire_config``
-  instead of stored under ``/sampler_config``.
+- For native Sequince checkpoints, sampler metadata may be read from either
+  ``/sampler_config`` or an embedded ``/aspire_config`` entry. This does not
+  make pre-migration checkpoint payloads compatible.
 
 Resuming from a file
 --------------------
@@ -87,15 +94,14 @@ Manual resume via ``sample_posterior`` args
   .. code-block:: python
 
       from aspire.utils import AspireFile
+      from sequince.checkpoint import SMCCheckpoint
 
       aspire = Aspire(..., flow_backend="zuko")
       with AspireFile("run.h5", "r") as f:
           aspire.load_flow(f, path="flow")
-          # Standard layout is /checkpoint/state; adjust if you used a different path
-          checkpoint_bytes = f["checkpoint"]["state"][...].tobytes()
+          checkpoint = SMCCheckpoint.load_hdf5(f, path="checkpoint")
       samples = aspire.sample_posterior(
-          n_samples=..., sampler="smc", resume_from="run.h5"
-          # or resume_from=checkpoint_bytes if you prefer to pass bytes directly
+          n_samples=..., sampler="smc", resume_from=checkpoint
       )
 
 Notes and tips
@@ -107,8 +113,11 @@ Notes and tips
   will continue to the same file.
 - For manual control, you can always call ``save_config`` / ``save_flow`` yourself
   on an :class:`aspire.utils.AspireFile`.
-- SMC samplers also accept a custom ``checkpoint_callback`` and ``checkpoint_every`` if
-  you want full control over how checkpoints are persisted or inspected. Provide a
-  callable that accepts the checkpoint state dict; from there you can, for example,
-  serialize to another format or push to remote storage.
+- SMC and MCMC samplers accept native Sequince iteration callbacks through
+  ``callbacks``. Each callback receives ``(state, context, result)`` after an
+  iteration and may return an updated context.
+- They also accept ``checkpoint_callback`` and ``checkpoint_every`` for custom
+  persistence. The callback receives a committed
+  :class:`sequince.checkpoint.SMCCheckpoint`, which can be serialized directly
+  or inspected before being sent elsewhere.
 - When resuming, you must still specify the keyword arguments for :code:`sample_posterior`.
