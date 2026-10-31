@@ -17,6 +17,8 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
   extension interfaces require migration.
 - Adapt sampler histories to Sequince's beta, normalizing-constant, and
   mutation-metric interfaces.
+- Treat periodic parameters as ordinary coordinates in flow preconditioning,
+  using the same bounded and affine transforms as other parameters.
 - Treat `max_n_steps` as an iteration limit and report intermediate beta when
   it is reached. Final populations are resampled, with additional mutation only
   when increasing the final sample count.
@@ -35,9 +37,6 @@ and release versions follow [PEP 440](https://peps.python.org/pep-0440/).
 - Use the checkpoint's restored RNG stream for final posterior resampling.
 - Reject NaN and positive-infinite target evaluations while preserving negative
   infinity as zero target density.
-- Reject periodic flow preconditioning until an invertible periodic transport
-  and consistent proposal density are available. Standard periodic sampler
-  wrapping remains available.
 
 ## [0.1.0] - 2026-08-03
 

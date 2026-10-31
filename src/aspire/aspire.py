@@ -361,11 +361,6 @@ class Aspire:
                 **preconditioning_kwargs,
             )
         elif preconditioning == "flow":
-            if self.periodic_parameters:
-                raise NotImplementedError(
-                    "Flow preconditioning with periodic parameters is not "
-                    "supported. Use preconditioning='default' or 'none'."
-                )
             preconditioning_kwargs = dict(preconditioning_kwargs or {})
             fit_kwargs = preconditioning_kwargs.pop("fit_kwargs", None)
             flow_kwargs = dict(
@@ -380,7 +375,7 @@ class Aspire:
             )
             particle_transform = build_particle_transform(
                 parameters=self.parameters,
-                periodic_parameters=self.periodic_parameters,
+                periodic_parameters=None,
                 prior_bounds=self.prior_bounds,
                 eps=self.eps,
                 **preconditioning_kwargs,

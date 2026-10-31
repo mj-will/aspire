@@ -90,9 +90,9 @@ or prior is evaluated. Configure it via
 * ``"flow"`` fits a second density flow to the current particles and wraps it
   in :class:`sequince.transforms.FlowTransform` for SMC/MCMC updates. This
   reuses bounded handling while providing a richer geometry for the kernels.
-  Periodic parameters with flow preconditioning are currently rejected because
-  wrapping is not an invertible flow transformation. Use ``"default"`` or
-  ``"none"`` for those problems.
+  Periodic parameters receive the same bounded and affine treatment as other
+  parameters in the flow. Their periodic topology is not modeled by the flow,
+  and flow preconditioning does not apply periodic wrapping.
 * ``"none"`` leaves the sampler in the original parameterisation with an identity
   transform. With ``preconditioning=None``, the importance sampler uses this
   identity transform; MCMC and SMC choose ``"default"`` instead.

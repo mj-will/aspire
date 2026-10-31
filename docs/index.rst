@@ -11,6 +11,7 @@ Key capabilities
 
 - Fit flow-based proposals (PyTorch or JAX backends) with bounded transforms.
   Periodic wrapping is available for standard sampler preconditioning.
+  Flows treat periodic parameters as ordinary coordinates.
 - Run Sequince-backed adaptive SMC and MCMC, or importance sampling, with
   detailed diagnostic histories.
 - Inspect results via convenience helpers for evidence estimates, corner plots,
