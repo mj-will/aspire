@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 from sequince.flows import clone_flow
 
-from aspire import Aspire, LegacyFlowAdapter
-from aspire.compat import _adapt_flow
+from aspire import Aspire
+from aspire.compat import LegacyFlowAdapter, _adapt_flow
 from aspire.history import FlowHistory
 from aspire.samplers.base import _ValidatedFlowProposal
 

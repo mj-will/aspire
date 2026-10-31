@@ -36,7 +36,8 @@ Existing external flow instances
 
 Wrap an old-style Aspire flow before passing it to Aspire::
 
-    from aspire import Aspire, LegacyFlowAdapter
+    from aspire import Aspire
+    from aspire.compat import LegacyFlowAdapter
 
     flow = LegacyFlowAdapter(my_existing_flow)
     analysis = Aspire(..., flow=flow)
